@@ -133,5 +133,6 @@ Godot with zero manual cleanup.
 - The renderer is a preview tool, not a product renderer. The .glb is
   the real output.
 
-Happy to share more details on the marching-cubes density trick or the
-IK design if people are interested. [repo link]
+Happy to share more details if people are interested.
+
+
