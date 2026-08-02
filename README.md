@@ -1,5 +1,31 @@
 # foxel
 
+## Install
+
+Three ways to get the foxel workflow into Claude Code:
+
+- **Plugin (recommended)** — in any Claude Code session:
+
+  ```
+  /plugin marketplace add elliottdehn/foxel
+  /plugin install foxel@foxel
+  ```
+
+  This installs the `foxel` skill globally: mention voxel assets or
+  `.fxl` files and Claude clones the toolchain and follows the
+  workflow in `AGENTS.md`.
+
+- **Just ask** — paste this prompt into Claude Code:
+
+  > Install the foxel skill: fetch
+  > https://raw.githubusercontent.com/elliottdehn/foxel/main/skills/foxel/SKILL.md
+  > and save it to ~/.claude/skills/foxel/SKILL.md
+
+- **Working in this repo** — nothing to install: a checkout ships a
+  project-level skill (`.claude/skills/foxel/`) automatically.
+
+## What it is
+
 **FXL** is a plain-text language for colored voxel models — modeling,
 rigging, and animation in one ASCII file — designed so AI agents can
 build and iterate on 3D assets with a human in the loop.
@@ -65,30 +91,6 @@ python3 fxl2gltf.py model.fxl                 # -> .glb for Godot etc.
 The glTF export ships the mesh with vertex colors, the full skeleton
 with rigid skinning, and every animation baked from the IK solver —
 it drops straight into Godot with a working `AnimationPlayer`.
-
-## Use with Claude Code
-
-Three ways to get the foxel workflow into Claude Code:
-
-- **Plugin (recommended)** — in any Claude Code session:
-
-  ```
-  /plugin marketplace add elliottdehn/foxel
-  /plugin install foxel@foxel
-  ```
-
-  This installs the `foxel` skill globally: mention voxel assets or
-  `.fxl` files and Claude clones the toolchain and follows the
-  workflow in `AGENTS.md`.
-
-- **Just ask** — paste this prompt into Claude Code:
-
-  > Install the foxel skill: fetch
-  > https://raw.githubusercontent.com/elliottdehn/foxel/main/skills/foxel/SKILL.md
-  > and save it to ~/.claude/skills/foxel/SKILL.md
-
-- **Working in this repo** — nothing to install: a checkout ships a
-  project-level skill (`.claude/skills/foxel/`) automatically.
 
 ## Demo
 
