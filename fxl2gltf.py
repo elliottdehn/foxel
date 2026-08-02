@@ -94,11 +94,8 @@ def main():
 
     glb = Glb()
     verts = tri_pos.reshape(-1, 3).astype(np.float32) * s
-    e1 = tri_pos[:, 1] - tri_pos[:, 0]
-    e2 = tri_pos[:, 2] - tri_pos[:, 0]
-    n = np.cross(e1, e2)
-    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-    normals = np.repeat(n, 3, axis=0).astype(np.float32)
+    normals = render.smooth_normals(tri_pos).reshape(-1, 3) \
+        .astype(np.float32)
     colors = np.repeat(tri_col.mean(axis=1) / 255.0, 3,
                        axis=0).astype(np.float32)
 

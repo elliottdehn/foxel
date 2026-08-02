@@ -342,6 +342,31 @@ def marching_cubes(dens, col, flat=False):
 # ---------------------------------------------------------------------------
 # Minimal software renderer: perspective camera, z-buffer, flat shading.
 
+def smooth_normals(tri_pos, crease_deg=50.0):
+    """Crease-aware per-corner normals: weld shared vertices and average
+    face normals across edges gentler than crease_deg, keeping hard
+    edges (teeth, ribs, socket rims) sharp while curved regions (skull
+    dome, bone knobs) shade smoothly."""
+    fn = np.cross(tri_pos[:, 1] - tri_pos[:, 0],
+                  tri_pos[:, 2] - tri_pos[:, 0])
+    fn /= np.maximum(np.linalg.norm(fn, axis=1, keepdims=True), 1e-12)
+    verts = tri_pos.reshape(-1, 3)
+    key = np.round(verts * 1024).astype(np.int64)
+    _, inv = np.unique(key, axis=0, return_inverse=True)
+    order = np.argsort(inv, kind='stable')
+    bounds = np.flatnonzero(np.diff(inv[order])) + 1
+    cos_t = math.cos(math.radians(crease_deg))
+    corner_face = np.arange(len(verts)) // 3
+    out = np.empty_like(verts)
+    for g in np.split(order, bounds):
+        fns = fn[corner_face[g]]
+        m = fns @ fns.T > cos_t
+        avg = m.astype(float) @ fns
+        avg /= np.maximum(np.linalg.norm(avg, axis=1, keepdims=True), 1e-12)
+        out[g] = avg
+    return out.reshape(-1, 3, 3)
+
+
 def rotmat(yaw_deg, pitch_deg):
     yaw, pitch = math.radians(yaw_deg), math.radians(pitch_deg)
     ry = np.array([[math.cos(yaw), 0, math.sin(yaw)],
@@ -369,7 +394,7 @@ def make_cam(tri_pos, width, height, yaw_deg, pitch_deg, ss=2):
 
 
 def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
-           rig=None, cam=None):
+           rig=None, cam=None, tri_norm=None):
     w, h = width * ss, height * ss
     rot = rotmat(yaw_deg, pitch_deg)
     if cam is None:
@@ -384,16 +409,22 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
     pts = np.stack([sx, sy], 1).reshape(-1, 3, 2)
     depth = depth.reshape(-1, 3)
 
-    # Flat shading: per-triangle world normal, two-sided lambert.
-    e1 = tri_pos[:, 1] - tri_pos[:, 0]
-    e2 = tri_pos[:, 2] - tri_pos[:, 0]
-    n = np.cross(e1, e2)
-    n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+    # Two-sided lambert. Flat per-triangle normals by default; Gouraud
+    # (per-corner normals interpolated) when tri_norm is provided.
     light = np.array([-0.45, 0.8, 0.5])
     light /= np.linalg.norm(light)
-    shade = 0.25 + 0.75 * np.abs(n @ light)
     base = tri_col.mean(1) / 255.0
-    tcol = np.clip(base * shade[:, None], 0, 1)
+    if tri_norm is not None:
+        cshade = 0.25 + 0.75 * np.abs(tri_norm @ light)
+        tcol = None
+    else:
+        e1 = tri_pos[:, 1] - tri_pos[:, 0]
+        e2 = tri_pos[:, 2] - tri_pos[:, 0]
+        n = np.cross(e1, e2)
+        n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
+        cshade = None
+        shade = 0.25 + 0.75 * np.abs(n @ light)
+        tcol = np.clip(base * shade[:, None], 0, 1)
 
     # Background: vertical gradient.
     img = np.zeros((h, w, 3))
@@ -427,7 +458,13 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
         zwin = zbuf[y0:y1, x0:x1]
         mask &= zi < zwin
         zwin[mask] = zi[mask]
-        img[y0:y1, x0:x1][mask] = tcol[ti]
+        if cshade is not None:
+            sh = (w0 * cshade[ti, 0] + w1 * cshade[ti, 1]
+                  + w2 * cshade[ti, 2])
+            img[y0:y1, x0:x1][mask] = np.clip(
+                base[ti][None, :] * sh[mask][:, None], 0, 1)
+        else:
+            img[y0:y1, x0:x1][mask] = tcol[ti]
 
     img = img.reshape(height, ss, width, ss, 3).mean((1, 3))
 
@@ -752,10 +789,12 @@ def skin_bind(tri_pos, dens, rest, bones):
     return bind
 
 
-def skin_apply(tri_pos, bind, rest, pose, rots, bones):
+def skin_apply(tri_pos, bind, rest, pose, rots, bones, tri_norm=None):
     """Rigidly transform each triangle by its bone (rotation from the IK
-    solve, so roll is consistent along chains)."""
+    solve, so roll is consistent along chains). Rotates per-corner
+    normals along when given."""
     out = tri_pos.copy()
+    out_n = tri_norm.copy() if tri_norm is not None else None
     for bi, (_, c1, c2, _f) in enumerate(bones):
         m = bind == bi
         if not m.any():
@@ -763,6 +802,10 @@ def skin_apply(tri_pos, bind, rest, pose, rots, bones):
         a0 = np.array(rest[c1], float)
         rb = rots[c2]
         out[m] = (tri_pos[m] - a0) @ rb.T + pose[c1]
+        if out_n is not None:
+            out_n[m] = tri_norm[m] @ rb.T
+    if out_n is not None:
+        return out, out_n
     return out
 
 
@@ -811,6 +854,7 @@ def main():
         rest = {c: (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)
                 for c, p in joints.items()}
         bind = skin_bind(tri_pos, dens, rest, bones)
+        rest_norm = smooth_normals(tri_pos)
         cam = make_cam(tri_pos, args.width, args.height,
                        args.yaw, args.pitch)
         n = max(2, int(round(anim['duration'] * args.fps)))
@@ -821,10 +865,12 @@ def main():
             pose, rots = solve_pose(rest, root, parent, children,
                                     targets, order, hints)
             apply_facing(pose, rots, rest, bones)
-            fpos = skin_apply(tri_pos, bind, rest, pose, rots, bones)
+            fpos, fnorm = skin_apply(tri_pos, bind, rest, pose, rots,
+                                     bones, tri_norm=rest_norm)
             frames.append(render(fpos, tri_col,
                                  args.width, args.height,
-                                 args.yaw, args.pitch, cam=cam))
+                                 args.yaw, args.pitch, cam=cam,
+                                 tri_norm=fnorm))
             print('frame %d/%d' % (i + 1, n))
         out = args.output or re.sub(r'\.fxl$', '', args.input) \
             + '_%s.png' % args.anim
@@ -840,7 +886,8 @@ def main():
         rig = (list(jw.values()),
                [(jw[c1], jw[c2]) for _, c1, c2, _f in bones])
     img = render(tri_pos, tri_col, args.width, args.height,
-                 args.yaw, args.pitch, rig=rig)
+                 args.yaw, args.pitch, rig=rig,
+                 tri_norm=smooth_normals(tri_pos))
     write_png(out, img)
     print('wrote %s (%dx%d)' % (out, args.width, args.height))
 
