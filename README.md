@@ -4,6 +4,12 @@
 rigging, and animation in one ASCII file — designed so AI agents can
 build and iterate on 3D assets with a human in the loop.
 
+<p align="center">
+  <img src="media/skull.png" width="340" alt="FXL skeleton skull close-up">
+  <img src="media/walk.png" width="250" alt="Walk cycle (animated)">
+  <img src="media/wave.png" width="250" alt="Wave animation (animated)">
+</p>
+
 A model is a stack of ASCII layers, bottom to top. Each character is a
 voxel. The palette's alpha channel is a *density field*: the renderer
 meshes it with goxel-style marching cubes, so sub-threshold "halo"
@@ -94,3 +100,8 @@ animations (`idle`, `walk`, `wave`) authored as sparse IK keyframes.
 python3 make_skeleton.py
 python3 render.py skeleton.fxl --anim walk --fps 14
 ```
+
+<p align="center">
+  <img src="media/skeleton.png" width="300" alt="Skeleton rest pose">
+  <img src="media/rig.png" width="300" alt="Rig overlay: joints and bones">
+</p>

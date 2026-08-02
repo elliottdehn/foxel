@@ -2,5 +2,6 @@ goxel/
 *.png
 *.mp4
 *.glb
+!media/*.png
 __pycache__/
 .DS_Store
