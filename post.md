@@ -134,9 +134,11 @@ quaternions.
 A ~7,400-voxel skeleton with a hand-drawn skull (30 ASCII layers), red
 glowing eyes, a 20-joint/19-bone rig, and three animations: idle
 (breathing, knees soft, feet planted flat), a swagger walk, and a wave.
-All authored by an agent over an afternoon of "render, look, adjust"
-with me only giving art direction. Exported to `.glb` and playing in
-Godot with zero manual cleanup.
+The marching-cubes mesh comes out to 14,212 triangles across 7,102
+vertices, smooth-shaded with crease detection, and every one of them
+traces back to a diffable text file. All authored by an agent over an
+afternoon of "render, look, adjust" with me only giving art direction.
+Exported to `.glb` and playing in Godot with zero manual cleanup.
 
 ## Limitations
 
