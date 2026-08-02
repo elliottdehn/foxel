@@ -2,6 +2,20 @@
 
 Repo: https://github.com/elliottdehn/foxel
 
+## Try it
+
+If you use Claude Code, two commands install it as a skill:
+
+```
+/plugin marketplace add elliottdehn/foxel
+/plugin install foxel@foxel
+```
+
+After that, just ask for a voxel asset ("make me a rigged goblin with
+a walk cycle") and the agent clones the toolchain and gets to work.
+Not on Claude Code? Everything is plain Python — clone the repo and
+point your agent at `AGENTS.md`.
+
 ## Background
 
 Doing 3D modeling, rigging, texturing and animation with agents is
