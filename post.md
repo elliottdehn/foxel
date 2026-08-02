@@ -1,5 +1,7 @@
 # I created a language for 3D design that agents can work with.
 
+Repo: https://github.com/elliottdehn/foxel
+
 ## Background
 
 Doing 3D modeling, rigging, texturing and animation with agents is
@@ -96,7 +98,7 @@ The toolchain is ~1,500 lines of dependency-free Python (numpy only):
   AnimationPlayer containing your named animations
 - `png2mp4.py` — animation previews to MP4
 
-## Why agents can actually iterate on this
+## Why agents can do this
 
 The whole loop is text in, image out. The agent edits a text file,
 renders a PNG, *looks at it*, and self-critiques. Every failure mode is
@@ -113,7 +115,7 @@ the human stays in the loop at the level of *art direction* ("more
 swagger", "temples narrower", "give it red eyes") instead of debugging
 quaternions.
 
-## What I built with it
+## What I built
 
 A ~7,400-voxel skeleton with a hand-drawn skull (30 ASCII layers), red
 glowing eyes, a 20-joint/19-bone rig, and three animations — idle
@@ -122,7 +124,7 @@ all authored by an agent over an afternoon of "render, look, adjust"
 with me only giving art direction. Exported to `.glb` and playing in
 Godot with zero manual cleanup.
 
-## Honest limitations
+## Limitations
 
 - It's voxel art. Stylized low-poly, not sculpting.
 - Agents don't one-shot it. The value is that iteration *converges* —
@@ -135,4 +137,4 @@ Godot with zero manual cleanup.
 
 Happy to share more details if people are interested.
 
-
+https://github.com/elliottdehn/foxel

@@ -1,0 +1,14 @@
+{
+  "name": "foxel",
+  "owner": {
+    "name": "Elliott Dehnbostel",
+    "url": "https://github.com/elliottdehn"
+  },
+  "plugins": [
+    {
+      "name": "foxel",
+      "source": "./",
+      "description": "FXL: an ASCII voxel language for agent-driven 3D modeling, rigging, and IK animation"
+    }
+  ]
+}

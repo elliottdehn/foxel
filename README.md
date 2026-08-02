@@ -60,6 +60,30 @@ The glTF export ships the mesh with vertex colors, the full skeleton
 with rigid skinning, and every animation baked from the IK solver —
 it drops straight into Godot with a working `AnimationPlayer`.
 
+## Use with Claude Code
+
+Three ways to get the foxel workflow into Claude Code:
+
+- **Plugin (recommended)** — in any Claude Code session:
+
+  ```
+  /plugin marketplace add elliottdehn/foxel
+  /plugin install foxel@foxel
+  ```
+
+  This installs the `foxel` skill globally: mention voxel assets or
+  `.fxl` files and Claude clones the toolchain and follows the
+  workflow in `AGENTS.md`.
+
+- **Just ask** — paste this prompt into Claude Code:
+
+  > Install the foxel skill: fetch
+  > https://raw.githubusercontent.com/elliottdehn/foxel/main/skills/foxel/SKILL.md
+  > and save it to ~/.claude/skills/foxel/SKILL.md
+
+- **Working in this repo** — nothing to install: a checkout ships a
+  project-level skill (`.claude/skills/foxel/`) automatically.
+
 ## Demo
 
 `make_skeleton.py` generates `skeleton.fxl`: a ~7,400-voxel skeleton
