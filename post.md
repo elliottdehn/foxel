@@ -13,7 +13,7 @@ If you use Claude Code, two commands install it as a skill:
 
 After that, just ask for a voxel asset ("make me a rigged goblin with
 a walk cycle") and the agent clones the toolchain and gets to work.
-Not on Claude Code? Everything is plain Python — clone the repo and
+Not on Claude Code? Everything is plain Python: clone the repo and
 point your agent at `AGENTS.md`.
 
 ## Background
@@ -34,7 +34,7 @@ progress over iterations.
 ## How It Works
 
 A model is a plain text file (`.fxl`). You write it as a stack of ASCII
-layers, bottom to top — each layer is a floor plan, each character is a
+layers, bottom to top. Each layer is a floor plan, each character is a
 voxel, `.` is empty:
 
 ```
@@ -67,11 +67,11 @@ alpha 255 is a hard cube; alpha 192 is slightly slimmer; alpha 96 never
 becomes surface on its own but *pulls the surface of its neighbors
 outward*. So you paint sub-threshold "halo" voxels around a shape and it
 comes out rounded and organic, or you skip them and get crisp edges.
-Same language, both looks — my skeleton's skull is smooth while its
+Same language, both looks: my skeleton's skull is smooth while its
 ribs and teeth stay sharp, and that's just alpha values.
 
 **Rigging** happens in the same file. Joints are declared with the
-palette and placed with battleship-style border notation — one marker in
+palette and placed with battleship-style border notation: one marker in
 a layer's edge row gives x, one at a row's edge gives z, the layer gives
 y. Bones connect joints, parent-first:
 
@@ -82,7 +82,7 @@ shin_l = bone k a
 ```
 
 **Animation** is the part I designed hardest around agents: it's
-CSS-keyframes-shaped, and you only ever write *positions* — never a
+CSS-keyframes-shaped, and you only ever write *positions*. Never a
 rotation, never an angle. You say where the hand or foot should be,
 sparsely, and IK (FABRIK) fills in every joint at every in-between
 frame with bone lengths preserved:
@@ -94,7 +94,7 @@ anim wave 1.6s loop:
 100%: wrist_r +0 +0 +0
 ```
 
-Keyframing a joint also *pins* it — pin the chest and arm gestures stop
+Keyframing a joint also *pins* it: pin the chest and arm gestures stop
 bending the spine. The residual degrees of freedom that positions can't
 express became tiny declarative facts instead of math: joints get bend
 hints (`+z` = knees buckle forward, `+x-y` = elbows out-and-down), bones
@@ -105,12 +105,12 @@ into hip roll and knee flex.
 
 The toolchain is ~1,500 lines of dependency-free Python (numpy only):
 
-- `render.py` — parses FXL, runs marching cubes, renders stills or
+- `render.py`: parses FXL, runs marching cubes, renders stills or
   animation loops (APNG) with its own tiny software rasterizer
-- `fxl2gltf.py` — exports mesh + skeleton + baked animations to `.glb`,
+- `fxl2gltf.py`: exports mesh + skeleton + baked animations to `.glb`,
   which **drops straight into Godot** with a Skeleton3D and an
   AnimationPlayer containing your named animations
-- `png2mp4.py` — animation previews to MP4
+- `png2mp4.py`: animation previews to MP4
 
 ## Why agents can do this
 
@@ -132,19 +132,19 @@ quaternions.
 ## What I built
 
 A ~7,400-voxel skeleton with a hand-drawn skull (30 ASCII layers), red
-glowing eyes, a 20-joint/19-bone rig, and three animations — idle
-(breathing, knees soft, feet planted flat), a swagger walk, and a wave —
-all authored by an agent over an afternoon of "render, look, adjust"
+glowing eyes, a 20-joint/19-bone rig, and three animations: idle
+(breathing, knees soft, feet planted flat), a swagger walk, and a wave.
+All authored by an agent over an afternoon of "render, look, adjust"
 with me only giving art direction. Exported to `.glb` and playing in
 Godot with zero manual cleanup.
 
 ## Limitations
 
 - It's voxel art. Stylized low-poly, not sculpting.
-- Agents don't one-shot it. The value is that iteration *converges* —
+- Agents don't one-shot it. The value is that iteration *converges*:
   each critique produces a small, targeted, reviewable change.
-- Roll is implicit unless you aim a leaf joint or declare a facing —
-  that's the cost of a rotations-free language, and you hit it exactly
+- Roll is implicit unless you aim a leaf joint or declare a facing.
+  That's the cost of a rotations-free language, and you hit it exactly
   where you'd expect (hands).
 - The renderer is a preview tool, not a product renderer. The .glb is
   the real output.
