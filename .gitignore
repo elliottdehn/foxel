@@ -1,0 +1,6 @@
+goxel/
+*.png
+*.mp4
+*.glb
+__pycache__/
+.DS_Store
