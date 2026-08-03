@@ -72,6 +72,13 @@ lllll
 
 That's a complete tree.
 
+The same language has a **2D mode** for pixel art: start a file with a
+`2d` line and slots become animation frames instead of layers — rows
+are typed top to bottom the way the image appears, alpha is
+transparency, and `*name N` holds a named frame for N frames. Renders
+to crisp nearest-neighbor PNG, or a looping APNG when there is more
+than one frame.
+
 ## Docs
 
 - [`LANG.md`](LANG.md) — the FXL spec: layers, palette, density, defs
@@ -89,6 +96,7 @@ Pure Python, no dependencies beyond numpy.
 python3 render.py model.fxl                   # still render -> PNG
 python3 render.py model.fxl --rig             # overlay joints/bones
 python3 render.py model.fxl --anim walk       # animation -> looping APNG
+python3 render.py art.fxl --scale 16          # 2D pixel art -> PNG/APNG
 python3 png2mp4.py model_walk.png             # APNG -> H.264 MP4 (macOS)
 python3 fxl2gltf.py model.fxl                 # -> .glb for Godot etc.
 ```
@@ -138,4 +146,12 @@ re-plants runs around the skirt while the arc tentacles writhe.
 
 <p align="center">
   <img src="media/horror_idle.png" width="300" alt="Eldritch horror idle (animated)">
+</p>
+
+`coin.fxl` is a hand-drawn 2D demo: a spinning gold coin in seven
+16×16 frames, drawn directly as ASCII — no generator script, just the
+file.
+
+<p align="center">
+  <img src="media/coin.png" width="128" alt="Spinning coin pixel animation">
 </p>

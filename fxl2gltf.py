@@ -81,6 +81,10 @@ def main():
     out = args.output or re.sub(r'\.fxl$', '', args.input) + '.glb'
     s = args.scale
 
+    if render.is_2d(args.input):
+        sys.exit('error: %s is a 2D pixel-art file; glTF export is for '
+                 '3D models (render.py exports 2D art to PNG/APNG)'
+                 % args.input)
     try:
         palette, scene, (joints, bones, anims, hints, skin_mode) = \
             render.parse_fxl(args.input)

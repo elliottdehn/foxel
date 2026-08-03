@@ -24,7 +24,8 @@ field** and sub-threshold voxels sculpt smooth surfaces.
 | `make_spider.py` | Generates `spider.fxl`. Multi-material grade ladders, double-bend leg chains, composed hard parts. |
 | `make_horror.py` | Generates `horror.fxl`. Catmull-Rom tentacles, smooth boolean-subtracted maw cavity, measured tooth planting, analytic weld checks between neighboring tentacles. |
 | `skeleton.fxl` | GENERATED — never hand-edit. Change `make_skeleton.py` and rerun. |
-| `png2mp4.py` | APNG → H.264 MP4 via macOS AVFoundation (embedded Swift helper). No ffmpeg on this machine. |
+| `coin.fxl` | Hand-drawn 2D pixel-art demo (spinning coin). 2D files need no generator: the `.fxl` IS the source. |
+| `png2mp4.py` | APNG → H.264 MP4 via macOS AVFoundation (embedded Swift helper). No ffmpeg on this machine. Decodes the RGB APNGs that 3D renders emit, not the RGBA ones from 2D mode. |
 | `fxl2gltf.py` | FXL → .glb (mesh + skeleton + baked animations) for Godot etc. |
 | `goxel/` | Upstream goxel checkout, reference only. |
 
@@ -38,6 +39,7 @@ python3 render.py skeleton.fxl --rig           # overlay joints/bones
 python3 render.py skeleton.fxl --anim walk --fps 14   # -> APNG
 python3 png2mp4.py skeleton_walk.png           # -> MP4 (loops 4x)
 python3 fxl2gltf.py skeleton.fxl               # -> skeleton.glb
+python3 render.py coin.fxl --scale 16          # 2D art -> PNG / looping APNG
 ```
 
 Camera: `--pitch` POSITIVE looks down on the model (from above),
@@ -71,6 +73,22 @@ To render a single animation pose, copy the loop body from `render.py`
 main(): `anim_targets` → `solve_pose` → `apply_facing` → `skin_apply` →
 `render` (pass `cam=make_cam(rest_mesh, ...)` so the camera doesn't
 drift between frames).
+
+## 2D mode (pixel art)
+
+A file starting with a `2d` line is pixel art (LANG.md §10): slots are
+frames, rows read top to bottom, alpha is opacity, `fps N` sets the
+rate, and `*name N` holds a named frame. The render-and-LOOK rule
+applies unchanged — render with `--scale 16` and read the image.
+Tips that already bit:
+
+- One wrong Unicode look-alike (Cyrillic `о` for Latin `o`) is
+  invisible in the source but the parser catches it as an unbound
+  character — trust the error, don't squint.
+- Keep the light source fixed in SCREEN space across frames of a
+  rotating object (a spinning coin's highlight stays on the left).
+- 2D APNGs are RGBA; view them directly, and don't run them through
+  `png2mp4.py` (RGB-only). `fxl2gltf.py` refuses 2D files.
 
 ## Modeling: how to use the alpha mechanic
 

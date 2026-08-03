@@ -181,6 +181,8 @@ def parse_fxl(path):
                     err(lineno, 'repeat count must be a positive integer')
                 count = int(parts[1])
             cur_ref = (name, count)
+        elif line == '2d':
+            err(lineno, "'2d' must be the first non-comment line")
         elif line in ('skin elastic', 'skin rigid'):
             skin_mode = line.split()[1]
         elif '=' in line:
@@ -781,6 +783,152 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
     return (np.clip(img, 0, 1) * 255 + 0.5).astype(np.uint8)
 
 
+# ---------------------------------------------------------------------------
+# 2D mode: pixel art (LANG.md section 10). A file whose first
+# non-comment line is `2d` is a flat image or a frame-by-frame
+# animation; slots are frames, rows are typed top to bottom, alpha is
+# pixel opacity.
+
+def is_2d(path):
+    with open(path) as f:
+        for raw in f:
+            line = raw.split('#', 1)[0].strip()
+            if line:
+                return line == '2d'
+    return False
+
+
+def parse_fxl_2d(path):
+    """Parse a 2D FXL file into (palette, frames, fps).
+
+    palette: char -> (r, g, b, a); a is pixel opacity.
+    frames:  list of frames, each a list of row strings top to bottom.
+    """
+    palette = {}
+    defs = {}
+    frames = []
+    fps = 8
+    cur_rows = []
+    cur_def = None
+    cur_ref = None
+    seen_2d = False
+
+    def err(lineno, msg):
+        raise FxlError('%s:%d: %s' % (path, lineno, msg))
+
+    def close_slot():
+        nonlocal cur_rows, cur_def, cur_ref
+        if cur_def is not None:
+            defs[cur_def] = cur_rows
+        elif cur_ref is not None:
+            name, count = cur_ref
+            frames.extend(defs[name] for _ in range(count))
+        elif cur_rows:
+            frames.append(cur_rows)
+        cur_rows, cur_def, cur_ref = [], None, None
+
+    with open(path) as f:
+        raw_lines = f.readlines()
+
+    for lineno, raw in enumerate(raw_lines, 1):
+        line = raw.split('#', 1)[0].strip()
+        if not line:
+            continue
+        if not seen_2d:
+            if line != '2d':
+                err(lineno, "2D file must start with a '2d' line")
+            seen_2d = True
+            continue
+        if re.fullmatch(r'-{3,}', line):
+            close_slot()
+        elif line == '2d':
+            err(lineno, "duplicate '2d' line")
+        elif line.split()[0] in ('anim', 'model', 'place', 'skin'):
+            err(lineno, '%r is not allowed in 2D mode' % line.split()[0])
+        elif line.startswith('fps '):
+            v = line[4:].strip()
+            if not v.isdigit() or int(v) < 1:
+                err(lineno, 'fps must be a positive integer')
+            fps = int(v)
+        elif line.endswith(':'):
+            name = line[:-1].strip()
+            if not NAME_RE.match(name):
+                err(lineno, 'bad frame name %r' % name)
+            if name in defs:
+                err(lineno, 'duplicate frame name %r' % name)
+            if cur_rows or cur_ref or cur_def:
+                err(lineno, 'definition must start its own slot')
+            cur_def = name
+        elif line.startswith('*'):
+            if cur_def is not None:
+                err(lineno, 'reference inside a definition body')
+            if cur_rows or cur_ref:
+                err(lineno, 'reference must be the only content of its slot')
+            parts = line[1:].split()
+            if not parts or not NAME_RE.match(parts[0]) or len(parts) > 2:
+                err(lineno, 'malformed reference %r' % line)
+            name = parts[0]
+            if name not in defs:
+                err(lineno, 'reference to undefined frame %r' % name)
+            count = 1
+            if len(parts) == 2:
+                if not parts[1].isdigit() or int(parts[1]) < 1:
+                    err(lineno, 'repeat count must be a positive integer')
+                count = int(parts[1])
+            cur_ref = (name, count)
+        elif '=' in line:
+            lhs, rhs = (s.strip() for s in line.split('=', 1))
+            first = rhs.split()[0] if rhs.split() else ''
+            if first in ('joint', 'bone'):
+                err(lineno, 'no rig in 2D mode: animate by drawing frames')
+            if not CHAR_RE.match(lhs):
+                err(lineno, 'bad palette character %r' % lhs)
+            if lhs in palette:
+                err(lineno, 'duplicate palette binding %r' % lhs)
+            if len(rhs.split()) != 1:
+                if rhs.split()[1:] == ['hard']:
+                    err(lineno, "'hard' is meaningless in 2D mode")
+                err(lineno, 'malformed palette binding %r' % rhs)
+            if not COLOR_RE.match(rhs):
+                err(lineno, 'malformed color %r' % rhs)
+            r, g, b = (int(rhs[i:i + 2], 16) for i in (0, 2, 4))
+            a = int(rhs[6:8], 16) if len(rhs) == 8 else 255
+            if a == 0:
+                err(lineno, "alpha of zero is not allowed, use '.'")
+            palette[lhs] = (r, g, b, a)
+        else:
+            if cur_ref is not None:
+                err(lineno, 'grid row after a reference in the same slot')
+            if ' ' in line or '\t' in line:
+                err(lineno, 'interior whitespace in row')
+            for ch in line:
+                if ch != '.' and ch not in palette:
+                    err(lineno, 'unbound pixel character %r' % ch)
+            cur_rows.append(line)
+
+    if cur_rows or cur_def is not None or cur_ref is not None:
+        close_slot()
+
+    if not frames:
+        raise FxlError('%s: no frames' % path)
+    h, w = len(frames[0]), len(frames[0][0])
+    for fi, fr in enumerate(frames):
+        if len(fr) != h or any(len(r) != w for r in fr):
+            raise FxlError('%s: frame %d is not %dx%d like frame 1'
+                           % (path, fi + 1, w, h))
+    return palette, frames, fps
+
+
+def render_2d(palette, rows, scale):
+    """One frame -> RGBA image, nearest-neighbor upscaled."""
+    img = np.zeros((len(rows), len(rows[0]), 4), np.uint8)
+    for y, row in enumerate(rows):
+        for x, ch in enumerate(row):
+            if ch != '.':
+                img[y, x] = palette[ch]
+    return np.repeat(np.repeat(img, scale, 0), scale, 1)
+
+
 def _chunk(tag, data):
     c = struct.pack('>I', len(data)) + tag + data
     return c + struct.pack('>I', zlib.crc32(tag + data))
@@ -791,20 +939,22 @@ def _scanlines(img):
 
 
 def write_png(path, img):
-    h, w, _ = img.shape
+    h, w, ch = img.shape
+    ct = 6 if ch == 4 else 2       # RGBA (2D pixel art) or RGB
     with open(path, 'wb') as f:
         f.write(b'\x89PNG\r\n\x1a\n')
-        f.write(_chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)))
+        f.write(_chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, ct, 0, 0, 0)))
         f.write(_chunk(b'IDAT', zlib.compress(_scanlines(img), 9)))
         f.write(_chunk(b'IEND', b''))
 
 
 def write_apng(path, frames, fps):
     """Animated PNG: all frames full-size, looping forever."""
-    h, w, _ = frames[0].shape
+    h, w, ch = frames[0].shape
+    ct = 6 if ch == 4 else 2
     seq = 0
     parts = [b'\x89PNG\r\n\x1a\n',
-             _chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)),
+             _chunk(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, ct, 0, 0, 0)),
              _chunk(b'acTL', struct.pack('>II', len(frames), 0))]
     for i, img in enumerate(frames):
         parts.append(_chunk(b'fcTL', struct.pack(
@@ -1187,7 +1337,9 @@ def main():
                     help='overlay the animation rig (joints and bones)')
     ap.add_argument('--anim', metavar='NAME',
                     help='render an animation to an animated PNG')
-    ap.add_argument('--fps', type=int, default=12)
+    ap.add_argument('--fps', type=int, default=None)
+    ap.add_argument('--scale', type=int, default=16,
+                    help='2D mode: pixels per art pixel (default 16)')
     ap.add_argument('--yaw', type=float, default=25.0)
     ap.add_argument('--pitch', type=float, default=-12.0)
     ap.add_argument('--width', type=int, default=720)
@@ -1195,6 +1347,26 @@ def main():
     args = ap.parse_args()
     out = args.output or re.sub(r'\.fxl$', '', args.input) + '.png'
 
+    if is_2d(args.input):
+        try:
+            palette, frames, ffps = parse_fxl_2d(args.input)
+        except FxlError as e:
+            sys.exit('error: %s' % e)
+        fps = args.fps or ffps
+        imgs = [render_2d(palette, fr, args.scale) for fr in frames]
+        print('%s: 2D, %dx%d px, %d frame(s)'
+              % (args.input, len(frames[0][0]), len(frames[0]), len(frames)))
+        if len(imgs) == 1:
+            write_png(out, imgs[0])
+            print('wrote %s (%dx%d)' % (out, imgs[0].shape[1],
+                                        imgs[0].shape[0]))
+        else:
+            write_apng(out, imgs, fps)
+            print('wrote %s (%d frames @ %d fps, loop)'
+                  % (out, len(imgs), fps))
+        return
+
+    args.fps = args.fps or 12
     try:
         palette, scene, (joints, bones, anims, hints,
                          skin_mode) = parse_fxl(args.input)

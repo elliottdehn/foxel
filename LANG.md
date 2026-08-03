@@ -8,6 +8,10 @@ palette, or `.` for blank (empty space).
 Suggested file extension: `.fxl`. Encoding: UTF-8; each voxel is one
 Unicode code point, so the palette is effectively unlimited (see §3).
 
+The same language also has a **2D mode** for pixel art and
+frame-by-frame animation: a file that starts with a `2d` line trades
+layers for frames (see §10).
+
 ## 1. Example
 
 ```
@@ -54,6 +58,9 @@ A file is a sequence of lines, processed in order:
    (`---`) ends the current layer.
 7. **Grid rows** — any other line is a row of voxels appended to the
    current layer.
+
+A file whose first non-comment line is `2d` is in 2D mode (§10):
+slots become animation frames and a bare `fps N` line is also allowed.
 
 Palette entries must appear before the first grid row that uses them.
 By convention the whole palette goes at the top of the file. A trailing
@@ -341,12 +348,65 @@ stretch smoothly like game-engine flesh. A renderer that cannot
 animate may ignore `anim` slots and skin declarations entirely; they
 add no voxels.
 
-## 10. Semantics
+## 10. 2D mode (pixel art)
 
-An FXL file denotes a sparse map from integer coordinates to RGBA:
+A file whose **first non-comment line** is the bare word `2d` is a
+pixel-art file: a flat image, or an animation drawn frame by frame.
+2D mode reuses the language you already know, with three
+reinterpretations:
+
+- **Rows are typed top to bottom**, the way the image appears — there
+  is no bottom-up stacking, because there is no "up".
+- **Slots are frames.** One slot is a still image; several slots play
+  in order as a loop. A bare `fps N` line sets the playback rate
+  (default 8).
+- **Alpha is pixel opacity**, not density. There is no meshing: each
+  character is one pixel, `.` is transparent, and the art is rendered
+  with nearest-neighbor upscaling so the pixels stay crisp.
+
+Named slots still work and are the idiom for holds and reuse: define a
+frame with `name:`, then `*name 3` holds it for three frames. All
+frames must have identical dimensions.
+
+```
+2d
+fps 2
+
+o = 111111
+y = FFD24A
+
+open:
+.ooo.
+oyyyo
+oyoyo
+oyyyo
+.ooo.
+---
+*open 3        # hold the open face
+---
+.ooo.
+oyyyo
+oyyyo          # blink
+oyyyo
+.ooo.
+```
+
+Everything rig- or volume-shaped is invalid in 2D mode: `joint`,
+`bone`, `anim`, `model`, `place`, `skin`, and the `hard` palette flag
+(every pixel is already exact and crisp).
+
+## 11. Semantics
+
+A 3D FXL file denotes a sparse map from integer coordinates to RGBA:
 
 ```
 voxels : (x, y, z) -> (r, g, b, a)       # only for non-blank cells
+```
+
+A 2D FXL file denotes a sequence of sparse pixel maps, one per frame:
+
+```
+frames : t -> (x, y) -> (r, g, b, a)     # only for non-blank cells
 ```
 
 That is exactly the voxel model consumed by the meshing pipeline in
@@ -357,13 +417,19 @@ the model. There is no other state: no transforms or macros. One file,
 one model, origin at the first character of the first line of the
 bottom layer.
 
-## 11. Grammar (EBNF)
+## 12. Grammar (EBNF)
 
 Applied after comment stripping and blank-line removal:
 
 ```ebnf
-file      = { palette | jointdecl | bonedecl } ,
+file      = file3d | file2d ;
+file3d    = { palette | jointdecl | bonedecl } ,
             [ slot , { "---" , slot } , [ "---" ] ] ;
+file2d    = "2d" , { palette2d | fpsdecl } ,
+            [ slot2d , { "---" , slot2d } , [ "---" ] ] ;
+palette2d = char , "=" , color ;          (* no "hard" in 2D *)
+fpsdecl   = "fps" , count ;
+slot2d    = def | ref | layer ;           (* frames; no anim slots *)
 palette   = char , "=" , color , [ "hard" ] ;
 jointdecl = char , "=" , "joint" , [ name ] , [ bend ] ;
 bonedecl  = name , "=" , "bone" , char , char , [ bend ] ;
@@ -397,7 +463,7 @@ delimited by `---` exactly like any other slot, but emits no slice.
 Definitions may appear anywhere in the slot sequence, as long as each
 name is defined before its first reference.
 
-## 12. Errors
+## 13. Errors
 
 A conforming reader rejects the file (with line number) on:
 
@@ -432,3 +498,8 @@ A conforming reader rejects the file (with line number) on:
 | duplicate model name | two `model kilt:` headers |
 | negative place offset | `place kilt -1 +0 +0` |
 | jointed model placed zero or multiple times | markers need one placement |
+| 3D-only declaration in a 2D file | `k = joint` after `2d` |
+| `hard` flag in a 2D file | every pixel is already crisp |
+| `2d` line after other content, or duplicated | `2d` mid-file |
+| non-positive fps | `fps 0` |
+| frames with mismatched dimensions | 16x16 then 16x12 |

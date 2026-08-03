@@ -1,6 +1,6 @@
 ---
 name: foxel
-description: Set up and use Foxel (FXL), an ASCII voxel language for 3D modeling, rigging, and IK animation. Clones the foxel toolchain repo and follows its agent workflow. Use when the user wants to create or edit voxel 3D assets, FXL models, voxel characters/animations, or mentions foxel or .fxl files.
+description: Set up and use Foxel (FXL), an ASCII voxel language for 3D modeling, rigging, IK animation, and 2D pixel art. Clones the foxel toolchain repo and follows its agent workflow. Use when the user wants to create or edit voxel 3D assets, FXL models, voxel characters/animations, 2D pixel art or sprite animations, or mentions foxel or .fxl files.
 ---
 
 # Foxel: agent-friendly voxel modeling
@@ -8,7 +8,9 @@ description: Set up and use Foxel (FXL), an ASCII voxel language for 3D modeling
 Foxel (FXL) is a plain-text language for colored voxel models: ASCII
 layers bottom-to-top, alpha-as-density smooth surfaces via marching
 cubes, a joint/bone rig, and position-only IK keyframe animations —
-all in one `.fxl` file. Toolchain is Python (numpy only).
+all in one `.fxl` file. A `2d` mode does pixel art and
+frame-by-frame sprite animation in the same language. Toolchain
+is Python (numpy only).
 
 ## Setup
 
@@ -40,6 +42,7 @@ python3 foxel/render.py model.fxl                 # still -> model.png
 python3 foxel/render.py model.fxl --yaw 80        # check the silhouette
 python3 foxel/render.py model.fxl --rig           # joints/bones overlay
 python3 foxel/render.py model.fxl --anim NAME     # -> looping APNG
+python3 foxel/render.py art.fxl --scale 16    # 2D pixel art -> PNG/APNG
 python3 foxel/png2mp4.py model_NAME.png           # -> MP4 (macOS)
 python3 foxel/fxl2gltf.py model.fxl               # -> .glb (Godot-ready)
 ```
