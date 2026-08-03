@@ -323,14 +323,35 @@ def parse_fxl(path):
         rows = src_layers[yl]
         colm = rowm = None
         for _, zi, xi, _o in o:
+            row = rows[zi]
             on_row = zi in (0, len(rows) - 1)
-            on_col = xi in (0, len(rows[zi]) - 1)
+            on_col = xi in (0, len(row) - 1)
             if on_row and on_col:
                 raise FxlError('%s: joint %r marker on a corner cell'
                                % (path, ch))
             if on_row:
                 colm = xi
-            elif on_col:
+                continue
+            if on_col:
+                rowm = zi
+                continue
+            # Stacked markers: valid off-border if an unbroken run of
+            # marker chars connects the cell straight to a border.
+            left = all(row[k] in joints for k in range(0, xi))
+            right = all(row[k] in joints
+                        for k in range(xi + 1, len(row)))
+            top = all(xi < len(rows[k]) and rows[k][xi] in joints
+                      for k in range(0, zi))
+            bottom = all(xi < len(rows[k]) and rows[k][xi] in joints
+                         for k in range(zi + 1, len(rows)))
+            col_stack = top or bottom
+            row_stack = left or right
+            if col_stack and row_stack:
+                raise FxlError('%s: joint %r stacked marker is ambiguous'
+                               % (path, ch))
+            if col_stack:
+                colm = xi
+            elif row_stack:
                 rowm = zi
             else:
                 raise FxlError('%s: joint %r marker not on a border'

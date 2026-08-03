@@ -249,6 +249,21 @@ Markers are annotations, not voxels: they must sit on cells that would
 otherwise be blank, and a corner cell (border row AND border column) is
 invalid because it is ambiguous.
 
+**Stacking.** When two joints' markers would collide on the same border
+cell, markers may stack inward: a marker that is not itself on the
+border is valid if an **unbroken run of marker characters** connects it
+in a straight line to a border — left or right for row markers, top or
+bottom for column markers. Each marker in the stack still reads its own
+row or column. A stacked marker with complete runs both to a horizontal
+and a vertical border is ambiguous and is an error.
+
+```
+.....kw................    <- column markers: k x = 5, w x = 6
+.......................
+kw.....................    <- row markers: k z = 2, AND w z = 2
+.......................       (both joints share z via the stack)
+```
+
 **Semantics.** The rig adds a map of joints to voxel-center positions,
 `joint -> (x + 0.5, y + 0.5, z + 0.5)`, and a list of named bones as
 joint pairs. It does not affect the voxel data; how a consumer animates
@@ -404,7 +419,8 @@ A conforming reader rejects the file (with line number) on:
 | duplicate bone name | two `shin_l = bone ...` lines |
 | joint marked in more than one layer | markers in two layers |
 | wrong marker count (exactly 2 required) | one or three `k` marks |
-| marker not on a border, or on a corner cell | `k` in mid-grid |
+| marker not on a border, on a corner cell, or in a broken stack | `k` in mid-grid |
+| stacked marker with complete runs to two borders | ambiguous stack |
 | declared joint never marked | `k = joint` with no marks |
 | joint with two parent bones, or no single root | cyclic/forest rig |
 | duplicate animation name | two `anim walk ...` blocks |

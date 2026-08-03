@@ -38,6 +38,9 @@ python3 png2mp4.py skeleton_walk.png           # -> MP4 (loops 4x)
 python3 fxl2gltf.py skeleton.fxl               # -> skeleton.glb
 ```
 
+Camera: `--pitch` POSITIVE looks down on the model (from above),
+negative looks up from below. Easy to get backwards.
+
 ## The one workflow rule
 
 **Always render and LOOK at the image after any change.** Every visual
@@ -180,9 +183,12 @@ make the arm keys track the sway.
 - `np.seterr(all='ignore')` in render.py silences *spurious* macOS
   Accelerate matmul warnings. Mesh data is verified finite; don't
   "fix" this by removing it, and don't trust new NaNs to warn.
-- Joint markers use sudoku border notation (LANG.md §7); the generator
-  injects them into emitted layers and asserts the cells are blank.
-  Two joints in one layer must use opposite borders.
+- Joint markers use sudoku border notation (LANG.md §8); when two
+  joints' markers collide on a border cell, they STACK inward — an
+  unbroken run of marker chars connecting to the border is valid, and
+  each marker still reads its own row/column. The generators'
+  `_inject_markers` helper does this automatically (scan inward from
+  the near border, fall back to the far one).
 - The FXL emitter dedupes identical layers into defs/refs automatically;
   marked (jointed) layers become unique. That is expected.
 - `png2mp4.py` decodes only the APNG dialect `render.py` writes

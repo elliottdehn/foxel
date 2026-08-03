@@ -422,14 +422,44 @@ BONES = [
     ('shin_l', 'k', 'a'), ('shin_r', 'K', 'A'),
     ('foot_l', 'a', 'm'), ('foot_r', 'A', 'M'),
 ]
-for ch, (jx, jy, jz) in JOINTS.items():
-    rows = layers[jy]
-    r0 = 0 if rows[0][jx] == '.' else len(rows) - 1
-    assert rows[r0][jx] == '.', 'column marker %r blocked' % ch
-    rows[r0] = rows[r0][:jx] + ch + rows[r0][jx + 1:]
-    ci = 0 if jx < CX else W - 1
-    assert rows[jz][ci] == '.', 'row marker %r blocked' % ch
-    rows[jz] = (ch + rows[jz][1:]) if ci == 0 else (rows[jz][:-1] + ch)
+def _inject_markers(layers, JOINTS, width, cx):
+    # Stacked border markers (LANG.md section 8): scan inward from a
+    # border and drop the marker on the first blank; every cell crossed
+    # must itself be a marker, or that side is unusable.
+    js = set(JOINTS)
+    for ch, (jx, jy, jz) in JOINTS.items():
+        rows = layers[jy]
+        placed = False
+        for order in (range(len(rows)), range(len(rows) - 1, -1, -1)):
+            for r in order:
+                cell = rows[r][jx]
+                if cell == '.':
+                    rows[r] = rows[r][:jx] + ch + rows[r][jx + 1:]
+                    placed = True
+                    break
+                if cell not in js:
+                    break
+            if placed:
+                break
+        assert placed, 'column marker %r blocked' % ch
+        placed = False
+        near, far = (range(width), range(width - 1, -1, -1))
+        if jx >= cx:
+            near, far = far, near
+        for order in (near, far):
+            for c in order:
+                cell = rows[jz][c]
+                if cell == '.':
+                    rows[jz] = rows[jz][:c] + ch + rows[jz][c + 1:]
+                    placed = True
+                    break
+                if cell not in js:
+                    break
+            if placed:
+                break
+        assert placed, 'row marker %r blocked' % ch
+
+_inject_markers(layers, JOINTS, W, CX)
 layers = [tuple(rows) for rows in layers]
 
 from collections import Counter
