@@ -2,6 +2,8 @@
 
 Repo: https://github.com/elliottdehn/foxel
 
+Don't expect to one-shot an amazing asset.
+
 ## Try it
 
 If you use Claude Code, two commands install it as a skill:

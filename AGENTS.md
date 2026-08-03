@@ -20,6 +20,7 @@ field** and sub-threshold voxels sculpt smooth surfaces.
 | `render.py` | Parser, MC mesher, IK solver, skinning, software rasterizer, PNG/APNG writer. The reference implementation. |
 | `mc_tables.py` | MC lookup tables, extracted verbatim from `goxel/src/marchingcube.c`. Never edit. |
 | `make_skeleton.py` | Generates `skeleton.fxl`. Body = parameterized loops; skull = hand-drawn ASCII layers; rig + animations emitted at the end. |
+| `make_goblin.py` | Generates `goblin.fxl`. Demonstrates the newer analytic-density techniques: soft ellipsoids/cones, 10-grade shells, sharp zones, dark-liner color isolation. |
 | `skeleton.fxl` | GENERATED — never hand-edit. Change `make_skeleton.py` and rerun. |
 | `png2mp4.py` | APNG → H.264 MP4 via macOS AVFoundation (embedded Swift helper). No ffmpeg on this machine. |
 | `fxl2gltf.py` | FXL → .glb (mesh + skeleton + baked animations) for Godot etc. |
@@ -64,18 +65,41 @@ drift between frames).
 - Iso threshold is alpha 127 (`>= 127` = solid). Surface position along
   each edge interpolates to iso 0.5, so intermediate alphas *move* the
   surface: high alpha fattens, low slims (see IMPL.md §5–7).
-- The generator's halo pass wraps halo-eligible bone in a graded 3-shell
-  falloff (alpha 64/28/12). Shell 1 at ~64 puts the crossing near
-  half-voxel → steps render as 45° chamfers. Alpha ~96+ bulges 0.8 of a
-  voxel and looks inflated; tune with the mu formula, not by guessing.
-- Things that must stay CRISP opt OUT of the halo (`halo=False`): ribs,
-  spine, teeth, fingers. One voxel of gap survives only without shells.
-- Cavities (eye sockets, mouth, nose) are carved AFTER the halo pass
-  ('x' cells in the skull art) so shells can't fog them; dark back-wall
-  voxels ('e') make them read black. 1-voxel features get color-averaged
-  into invisibility — make dark features 2+ voxels or use carved holes.
-- Sub-threshold halo carries NO connectivity: a limb "attached" only
-  through halo voxels is visually detached. Solid paths only.
+- Shells around a HARD solid can only chamfer its steps — the surface
+  still hugs the stepped solid boundary. For truly smooth organic
+  masses, make the solid itself soft: **analytic densities**
+  (`soft_ellipsoid`, `soft_cone` in make_goblin.py) compute each cell's
+  alpha from the shape's implicit function and quantize it down a
+  ladder (255, 192, 158, 131, then ten sub-threshold grades 104→5,
+  chars '0'–'9'), ramping ~1.5 voxels either side of the surface.
+  Marching cubes then reconstructs a near-smooth shape.
+- For everything else, the generators run a distance-transform shell
+  pass with the SAME slope (alpha ≈ 127.5 − (d − 0.5)·80) so analytic
+  and shell surfaces meet consistently. The older 3-shell halo
+  (64/28/12) in make_skeleton.py is the cruder ancestor of this.
+- Things that must stay CRISP opt OUT of shells (`halo=False`): ribs,
+  teeth, claws, fingers. One voxel of gap survives only without shells.
+- **Sharp zones**: strip all sub-threshold cells in boxes around
+  features (eyes, mouth, nose rims) after the shell pass — solid meets
+  air directly and crease-aware shading keeps the edge hard. This is
+  how a soft head gets a crisp face.
+- Cavities (eye sockets, mouth) are carved AFTER the shell pass so
+  shells can't fog them; dark back-wall voxels make them read black.
+  1-voxel features get color-averaged into invisibility — make dark
+  features 2+ voxels or use carved holes.
+- **Color isolation**: MC triangle color is the mean of its corners, so
+  a bright feature voxel (eye glow, tooth) that touches skin bleeds a
+  soft halo of its color. Line such features with dark cells on every
+  face that would touch skin — the bleed becomes a dark outline, which
+  reads as intentional (eyeliner, gums).
+- Sub-threshold shells carry NO connectivity: a limb "attached" only
+  through shell voxels is visually detached. Solid paths only. The
+  inverse also bites: solids closer than ~3 voxels visually WELD as
+  their density bulges meet (the goblin's arms webbed to its ribs at a
+  1-voxel gap). Give separate parts real clearance.
+- Reserve the 1-cell border ring of every layer for joint markers —
+  never let geometry or shells write there (soft fields reach further
+  than you think).
 
 ## Modeling: shape lessons (hard-won)
 
@@ -120,7 +144,11 @@ what keeps feet flat in the idle.
 Animation feel: walks need pelvis sway + chest counter-sway + head nod,
 not just leg targets; place stride extremes at the edge of reach so
 planted legs straighten while swinging legs bend. Keep flare offsets
-uniform along a limb (elbow AND wrist), or the forearm kinks.
+uniform along a limb (elbow AND wrist), or the forearm kinks. And keep
+sway consistent with pinning: if the chest sways in x while elbow and
+wrist targets are world-fixed, the arms flail sideways relative to the
+body — either pin the chest and put the sway in the pelvis/head, or
+make the arm keys track the sway.
 
 ## Gotchas
 
@@ -139,6 +167,10 @@ uniform along a limb (elbow AND wrist), or the forearm kinks.
   renderer to 0.000000 m — keep that property when touching either side.
 - Layer rows must be exactly W chars; generator asserts catch mistakes.
   When writing skull art, count dots: side padding = (43 - width) / 2.
+- Test analytic primitives on non-axis-aligned cases: the first
+  soft_cone silently only worked for x-aligned axes (the ears) and
+  painted an infinite slab for the y/z-axis nose. The fix is a proper
+  orthonormal frame perpendicular to the axis.
 
 ## When extending the language
 

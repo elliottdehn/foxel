@@ -1,5 +1,9 @@
 # foxel
 
+<p align="center">
+  <img src="media/wave.png" width="250" alt="Wave animation (animated)">
+</p>
+
 ## Install
 
 Three ways to get the foxel workflow into Claude Code:
@@ -31,9 +35,7 @@ rigging, and animation in one ASCII file — designed so AI agents can
 build and iterate on 3D assets with a human in the loop.
 
 <p align="center">
-  <img src="media/skull.png" width="340" alt="FXL skeleton skull close-up">
   <img src="media/walk.png" width="250" alt="Walk cycle (animated)">
-  <img src="media/wave.png" width="250" alt="Wave animation (animated)">
 </p>
 
 A model is a stack of ASCII layers, bottom to top. Each character is a
@@ -106,4 +108,12 @@ python3 render.py skeleton.fxl --anim walk --fps 14
 <p align="center">
   <img src="media/skeleton.png" width="300" alt="Skeleton rest pose">
   <img src="media/rig.png" width="300" alt="Rig overlay: joints and bones">
+</p>
+
+`make_goblin.py` is a second demo built by asking the agent for
+"a rigged goblin with a walk cycle": analytic soft-density flesh,
+sharp-zone facial features, pointed cone ears and nose, and a waddle.
+
+<p align="center">
+  <img src="media/goblin.png" width="300" alt="Rigged goblin">
 </p>
