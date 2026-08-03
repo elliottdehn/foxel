@@ -37,7 +37,7 @@ EDGES_VERTICES = [
 ]
 
 NAME_RE = re.compile(r'^[A-Za-z_][A-Za-z0-9_]*$')
-CHAR_RE = re.compile(r'^[A-Za-z0-9]$')
+CHAR_RE = re.compile(r'^[^\s.#=\-:*]$')   # any single non-reserved char
 COLOR_RE = re.compile(r'^[0-9a-fA-F]{6}([0-9a-fA-F]{2})?$')
 HINT_RE = re.compile(r'^(?:[+-][xyz])+$')
 ANIM_RE = re.compile(r'^anim\s+([A-Za-z_][A-Za-z0-9_]*)\s+'
@@ -68,8 +68,12 @@ def parse_fxl(path):
     bone_names = set()
     hints = {}
     anims = {}
+    skin_mode = 'rigid'
     defs = {}
     layers = []
+    models = {}
+    places = []
+    cur_model = [None]
     cur_rows = []
     cur_def = None
     cur_ref = None
@@ -77,6 +81,9 @@ def parse_fxl(path):
 
     def err(lineno, msg):
         raise FxlError('%s:%d: %s' % (path, lineno, msg))
+
+    def target():
+        return models[cur_model[0]] if cur_model[0] else layers
 
     def close_slot():
         nonlocal cur_rows, cur_def, cur_ref, cur_anim
@@ -86,9 +93,9 @@ def parse_fxl(path):
             defs[cur_def] = cur_rows
         elif cur_ref is not None:
             name, count = cur_ref
-            layers.extend(defs[name] for _ in range(count))
+            target().extend(defs[name] for _ in range(count))
         else:
-            layers.append(cur_rows)
+            target().append(cur_rows)
         cur_rows, cur_def, cur_ref, cur_anim = [], None, None, None
 
     with open(path) as f:
@@ -126,6 +133,28 @@ def parse_fxl(path):
             delta = (float(m.group(3)), float(m.group(4)), float(m.group(5)))
             cur_anim['keys'].append((pct / 100.0, ch, delta,
                                      m.group(6) or 'ease'))
+        elif line.startswith('model ') and line.endswith(':'):
+            if cur_rows or cur_ref or cur_def is not None \
+                    or cur_anim is not None:
+                err(lineno, 'model header must start its own slot')
+            mname = line[5:-1].strip()
+            if not NAME_RE.match(mname):
+                err(lineno, 'bad model name %r' % mname)
+            if mname in models:
+                err(lineno, 'duplicate model %r' % mname)
+            models[mname] = []
+            cur_model[0] = mname
+        elif line.startswith('place '):
+            parts = line.split()
+            if len(parts) != 5:
+                err(lineno, 'malformed place: place NAME dx dy dz')
+            try:
+                off = tuple(int(p) for p in parts[2:5])
+            except ValueError:
+                err(lineno, 'place offsets must be integers')
+            if any(o < 0 for o in off):
+                err(lineno, 'place offsets must be non-negative')
+            places.append((lineno, parts[1], off))
         elif line.endswith(':'):
             name = line[:-1].strip()
             if not NAME_RE.match(name):
@@ -152,6 +181,8 @@ def parse_fxl(path):
                     err(lineno, 'repeat count must be a positive integer')
                 count = int(parts[1])
             cur_ref = (name, count)
+        elif line in ('skin elastic', 'skin rigid'):
+            skin_mode = line.split()[1]
         elif '=' in line:
             lhs, rhs = (s.strip() for s in line.split('=', 1))
             if rhs.split() and rhs.split()[0] == 'joint':
@@ -236,28 +267,62 @@ def parse_fxl(path):
             or cur_anim is not None:
         close_slot()  # no trailing separator
 
-    # Resolve joint markers (sudoku border notation, LANG.md section 7).
+    # Assemble the scene: root layers plus placed model instances.
+    for lineno, name, off in places:
+        if name not in models:
+            raise FxlError('%s:%d: place of undefined model %r'
+                           % (path, lineno, name))
+    placed_count = {}
+    for _, name, off in places:
+        placed_count[name] = placed_count.get(name, 0) + 1
+    scene = []
+    if layers:
+        scene.append((layers, (0, 0, 0)))
+    for _, name, off in places:
+        scene.append((models[name], off))
+
+    # Resolve joint markers (sudoku border notation, LANG.md section 8)
+    # across the root layers and every placed instance; a model that
+    # contains markers must be placed exactly once.
+    marker_models = set()
+    for mname, mlayers in models.items():
+        if any(ch in joints for rows in mlayers for row in rows
+               for ch in row):
+            marker_models.add(mname)
+            if placed_count.get(mname, 0) != 1:
+                raise FxlError(
+                    '%s: model %r has joint markers and must be placed '
+                    'exactly once (placed %d times)'
+                    % (path, mname, placed_count.get(mname, 0)))
     occ = {}
-    for yi, rows in enumerate(layers):
-        for zi, row in enumerate(rows):
-            for xi, ch in enumerate(row):
-                if ch in joints:
-                    occ.setdefault(ch, []).append((yi, zi, xi))
+    for part_layers, off in scene:
+        for yi, rows in enumerate(part_layers):
+            for zi, row in enumerate(rows):
+                for xi, ch in enumerate(row):
+                    if ch in joints:
+                        occ.setdefault(ch, []).append(
+                            (yi + off[1], zi, xi, off))
     for ch in joints:
         o = occ.get(ch, [])
         if not o:
             raise FxlError('%s: joint %r declared but never marked'
                            % (path, ch))
-        if len({t[0] for t in o}) > 1:
+        if len({(t[0], t[3]) for t in o}) > 1:
             raise FxlError('%s: joint %r marked in more than one layer'
                            % (path, ch))
         if len(o) != 2:
             raise FxlError('%s: joint %r needs exactly 2 markers, found %d'
                            % (path, ch, len(o)))
-        yi = o[0][0]
-        rows = layers[yi]
+        off = o[0][3]
+        yl = o[0][0] - off[1]
+        src_layers = None
+        for part_layers, poff in scene:
+            if poff == off and 0 <= yl < len(part_layers):
+                src_layers = part_layers
+                break
+        rows = src_layers[yl]
         colm = rowm = None
-        for _, zi, xi in o:
+        for _, zi, xi, _o in o:
             on_row = zi in (0, len(rows) - 1)
             on_col = xi in (0, len(rows[zi]) - 1)
             if on_row and on_col:
@@ -273,9 +338,10 @@ def parse_fxl(path):
         if colm is None or rowm is None:
             raise FxlError('%s: joint %r needs one border-row and one '
                            'border-column marker' % (path, ch))
-        joints[ch] = (colm, yi, rowm)
+        joints[ch] = (colm + off[0], o[0][0], rowm + off[2])
 
-    return palette, layers, (joints, bones, anims, hints)
+    return palette, scene, (joints, bones, anims, hints,
+                            skin_mode)
 
 
 def build_grids(palette, layers):
@@ -383,6 +449,40 @@ def smooth_normals(tri_pos, crease_deg=50.0, tri_hard=None):
         avg /= np.maximum(np.linalg.norm(avg, axis=1, keepdims=True), 1e-12)
         out[g] = avg
     return out.reshape(-1, 3, 3)
+
+
+def _part_dims(layers):
+    h = len(layers)
+    d = max((len(rows) for rows in layers), default=0)
+    w = max((len(r) for rows in layers for r in rows), default=0)
+    return w, h, d
+
+
+def mesh_scene(palette, scene, flat=False):
+    """Materialize each part of the scene SEPARATELY (own density
+    field, own marching cubes -- parts never blend), then merge the
+    meshes and build a union occupancy grid for skinning."""
+    gw = gh = gd = 0
+    for part_layers, off in scene:
+        w, h, d = _part_dims(part_layers)
+        gw = max(gw, off[0] + w)
+        gh = max(gh, off[1] + h)
+        gd = max(gd, off[2] + d)
+    union = np.zeros((gw + 2, gh + 2, gd + 2), np.uint8)
+    tps, tcs, ths = [], [], []
+    for part_layers, off in scene:
+        dens, col, hard = build_grids(palette, part_layers)
+        tp, tc, th = marching_cubes(dens, col, flat=flat, hard=hard)
+        tps.append(tp + np.array(off, float))
+        tcs.append(tc)
+        ths.append(th)
+        w, h, d = _part_dims(part_layers)
+        sub = union[off[0] + 1:off[0] + w + 1,
+                    off[1] + 1:off[1] + h + 1,
+                    off[2] + 1:off[2] + d + 1]
+        np.maximum(sub, dens[1:w + 1, 1:h + 1, 1:d + 1], out=sub)
+    return (np.concatenate(tps), np.concatenate(tcs),
+            np.concatenate(ths), union)
 
 
 def base_colors(tri_col, tri_hard=None):
@@ -820,6 +920,95 @@ def skin_bind(tri_pos, dens, rest, bones):
     return bind
 
 
+def skin_bind_elastic(tri_pos, dens, rest, bones):
+    """Per-vertex 2-bone weights from GEODESIC distances (BFS through
+    the solid body per bone), so joints stretch smoothly (elastic, WoW
+    style) while distant parts never grab the wrong bone."""
+    from collections import deque
+    solid = dens >= 127
+    dists = np.full((len(bones),) + solid.shape, np.float32(1e9))
+    for bi, (_, c1, c2, _f) in enumerate(bones):
+        a = np.array(rest[c1], float)
+        b = np.array(rest[c2], float)
+        dist = dists[bi]
+        dq = deque()
+        n = int(np.linalg.norm(b - a) * 2) + 2
+        for t in np.linspace(0, 1, n):
+            p = a + (b - a) * t
+            ix = int(round(p[0] - 0.5)) + 1
+            iy = int(round(p[1] - 0.5)) + 1
+            iz = int(round(p[2] - 0.5)) + 1
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    for dz in (-1, 0, 1):
+                        x, y, z = ix + dx, iy + dy, iz + dz
+                        if 0 <= x < solid.shape[0] \
+                                and 0 <= y < solid.shape[1] \
+                                and 0 <= z < solid.shape[2] \
+                                and solid[x, y, z] and dist[x, y, z] > 0:
+                            dist[x, y, z] = 0
+                            dq.append((x, y, z))
+        while dq:
+            x, y, z = dq.popleft()
+            nd = dist[x, y, z] + 1
+            for dx, dy, dz in ((1, 0, 0), (-1, 0, 0), (0, 1, 0),
+                               (0, -1, 0), (0, 0, 1), (0, 0, -1)):
+                nx, ny, nz = x + dx, y + dy, z + dz
+                if 0 <= nx < solid.shape[0] and 0 <= ny < solid.shape[1] \
+                        and 0 <= nz < solid.shape[2] \
+                        and solid[nx, ny, nz] and dist[nx, ny, nz] > nd:
+                    dist[nx, ny, nz] = nd
+                    dq.append((nx, ny, nz))
+
+    sx, sy, sz = np.nonzero(solid)
+    spos = np.stack([sx - 0.5, sy - 0.5, sz - 0.5], axis=1)
+    verts = tri_pos.reshape(-1, 3)
+    nearest = np.zeros(len(verts), int)
+    for i in range(0, len(verts), 2048):
+        c = verts[i:i + 2048]
+        d2 = ((c[:, None, :] - spos[None, :, :]) ** 2).sum(2)
+        nearest[i:i + 2048] = d2.argmin(1)
+    bd = dists[:, sx[nearest], sy[nearest], sz[nearest]]   # (nb, nv)
+    order = np.argsort(bd, axis=0)
+    i0, i1 = order[0], order[1]
+    d0 = bd[i0, np.arange(len(verts))]
+    d1 = bd[i1, np.arange(len(verts))]
+    w0 = 1.0 / (d0 + 1.0) ** 3
+    w1 = 1.0 / (d1 + 1.0) ** 3
+    w1 = np.where(d1 - d0 > 6.0, 0.0, w1)
+    tot = w0 + w1
+    idx = np.stack([i0, i1], axis=1)
+    wts = np.stack([w0 / tot, w1 / tot], axis=1)
+    return idx, wts
+
+
+def skin_apply_elastic(tri_pos, bind, rest, pose, rots, bones,
+                       tri_norm=None):
+    idx, wts = bind
+    verts = tri_pos.reshape(-1, 3)
+    norms = tri_norm.reshape(-1, 3) if tri_norm is not None else None
+    out = np.zeros_like(verts)
+    outn = np.zeros_like(verts) if norms is not None else None
+    for bi, (_, c1, c2, _f) in enumerate(bones):
+        a0 = np.array(rest[c1], float)
+        rb = rots[c2]
+        moved = None
+        for k in (0, 1):
+            m = (idx[:, k] == bi) & (wts[:, k] > 0)
+            if not m.any():
+                continue
+            if moved is None:
+                moved = (verts - a0) @ rb.T + pose[c1]
+            out[m] += wts[m, k, None] * moved[m]
+            if outn is not None:
+                outn[m] += wts[m, k, None] * (norms[m] @ rb.T)
+    if outn is not None:
+        outn /= np.maximum(np.linalg.norm(outn, axis=1, keepdims=True),
+                           1e-12)
+        return out.reshape(-1, 3, 3), outn.reshape(-1, 3, 3)
+    return out.reshape(-1, 3, 3)
+
+
 def skin_apply(tri_pos, bind, rest, pose, rots, bones, tri_norm=None):
     """Rigidly transform each triangle by its bone (rotation from the IK
     solve, so roll is consistent along chains). Rotates per-corner
@@ -859,18 +1048,16 @@ def main():
     out = args.output or re.sub(r'\.fxl$', '', args.input) + '.png'
 
     try:
-        palette, layers, (joints, bones, anims, hints) = \
-            parse_fxl(args.input)
-        dens, col, hard = build_grids(palette, layers)
-        tri_pos, tri_col, tri_hard = marching_cubes(dens, col,
-                                                    flat=args.flat,
-                                                    hard=hard)
+        palette, scene, (joints, bones, anims, hints,
+                         skin_mode) = parse_fxl(args.input)
+        tri_pos, tri_col, tri_hard, dens = mesh_scene(palette, scene,
+                                                      flat=args.flat)
     except FxlError as e:
         sys.exit('error: %s' % e)
 
     nvox = int(np.count_nonzero(dens))
-    print('%s: %d voxels, %d layers -> %d triangles'
-          % (args.input, nvox, len(layers), len(tri_pos)))
+    print('%s: %d voxels, %d part(s) -> %d triangles'
+          % (args.input, nvox, len(scene), len(tri_pos)))
     if joints:
         print('rig: %d joints, %d bones, %d animations'
               % (len(joints), len(bones), len(anims)))
@@ -886,7 +1073,9 @@ def main():
             sys.exit('error: %s' % e)
         rest = {c: (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)
                 for c, p in joints.items()}
-        bind = skin_bind(tri_pos, dens, rest, bones)
+        elastic = skin_mode == 'elastic'
+        bind = (skin_bind_elastic(tri_pos, dens, rest, bones) if elastic
+                else skin_bind(tri_pos, dens, rest, bones))
         rest_norm = smooth_normals(tri_pos, tri_hard=tri_hard)
         cam = make_cam(tri_pos, args.width, args.height,
                        args.yaw, args.pitch)
@@ -898,8 +1087,13 @@ def main():
             pose, rots = solve_pose(rest, root, parent, children,
                                     targets, order, hints)
             apply_facing(pose, rots, rest, bones)
-            fpos, fnorm = skin_apply(tri_pos, bind, rest, pose, rots,
-                                     bones, tri_norm=rest_norm)
+            if elastic:
+                fpos, fnorm = skin_apply_elastic(
+                    tri_pos, bind, rest, pose, rots, bones,
+                    tri_norm=rest_norm)
+            else:
+                fpos, fnorm = skin_apply(tri_pos, bind, rest, pose, rots,
+                                         bones, tri_norm=rest_norm)
             frames.append(render(fpos, tri_col,
                                  args.width, args.height,
                                  args.yaw, args.pitch, cam=cam,

@@ -47,7 +47,10 @@ grid before meshing:
 
 ```python
 import render
-palette, layers, (joints, bones, anims, hints) = render.parse_fxl('skeleton.fxl')
+palette, scene, (joints, bones, anims, hints, skin_mode) = \
+    render.parse_fxl('skeleton.fxl')
+# scene is a list of (layers, offset) parts; classic files have one.
+layers, _ = scene[0]
 dens, col, hard = render.build_grids(palette, layers)
 dens = dens[:, 64:, :].copy(); col = col[:, 64:, :].copy()  # head only
 hard = hard[:, 64:, :].copy()
@@ -56,6 +59,7 @@ tp, tc, th = render.marching_cubes(dens, col, hard=hard)
 tn = render.smooth_normals(tp, tri_hard=th)
 render.write_png('head.png',
     render.render(tp, tc, 800, 800, 16, -4, tri_norm=tn, tri_hard=th))
+# whole composed scenes: tp, tc, th, dens = render.mesh_scene(palette, scene)
 ```
 
 To render a single animation pose, copy the loop body from `render.py`
@@ -90,6 +94,13 @@ drift between frames).
   shells can't fog them; dark back-wall voxels make them read black.
   1-voxel features get color-averaged into invisibility — make dark
   features 2+ voxels or use carved holes.
+- **Separate models for separate things** (LANG.md §7): declare
+  accessories and features (kilt, teeth, eyes) as their own `model`
+  sections and `place` them — each part is materialized with its own
+  marching-cubes pass, so parts can share space without their density
+  fields blending and cross-part color bleed is impossible. Use this
+  when a feature fights the body's smoothing; use hard materials when
+  a single mesh is fine but needs crisp lines.
 - **Hard materials are the paradigm for hard lines** (LANG.md §3):
   `t = F5EFD8 hard` in the palette. Hard-sourced vertices snap to the
   half-voxel grid, triangles touching a hard voxel take its exact

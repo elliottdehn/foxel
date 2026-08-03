@@ -5,8 +5,8 @@ is written as a stack of ASCII **layers**, bottom to top. Each character
 in a layer is one voxel: a letter that was bound to a color in the
 palette, or `.` for blank (empty space).
 
-Suggested file extension: `.fxl`. Encoding: UTF-8, but voxel characters
-are restricted to ASCII (see §3).
+Suggested file extension: `.fxl`. Encoding: UTF-8; each voxel is one
+Unicode code point, so the palette is effectively unlimited (see §3).
 
 ## 1. Example
 
@@ -45,7 +45,7 @@ A file is a sequence of lines, processed in order:
 2. **Blank lines** — ignored everywhere. They never separate layers.
 3. **Palette lines** — any line containing `=` is a declaration: a
    color binding `<char> = <color>`, a joint `<char> = joint`, or a
-   bone `<name> = bone <char> <char>` (see §7).
+   bone `<name> = bone <char> <char>` (see §8).
 4. **Layer definitions** — a line ending with `:` names the layer that
    follows: `<name>:` (see §6).
 5. **Layer references** — a line starting with `*` stamps a previously
@@ -66,10 +66,17 @@ By convention the whole palette goes at the top of the file. A trailing
 <char> = <RRGGBB><AA>
 ```
 
-- `<char>` is a single ASCII letter or digit: `A–Z`, `a–z`, `0–9`.
-  Case-sensitive: `t` and `T` are different voxel types.
+- `<char>` is any single Unicode code point that is not reserved and
+  not whitespace — letters, digits, Greek (`λ`), box drawing (`░`),
+  accented letters, and so on. Case-sensitive: `t` and `T` are
+  different voxel types. Between colors, alpha grades, and joint
+  markers a complex model can exceed ASCII; Unicode makes the
+  character budget effectively unlimited.
 - Reserved, never definable: `.` (blank), `#` (comment), `=`, `-`,
   `:`, `*`, and whitespace.
+- Practical note: pick single-width glyphs. Wide characters (CJK,
+  emoji) and combining marks parse as one voxel each but will look
+  misaligned in most editors, defeating the point of ASCII layers.
 - `<color>` is 6 or 8 hex digits (case-insensitive): red, green, blue,
   and optional alpha. Alpha defaults to `FF` (255).
 - A binding may end with the word **`hard`**: `t = F5EFD8 hard`. Hard
@@ -155,7 +162,47 @@ A referenced layer is stamped verbatim — same size, same voxels. Edits
 to the template after a reference are impossible by construction, since
 definitions are immutable once closed.
 
-## 7. Joints and bones (animation rig)
+## 7. Models and composition
+
+A file may declare several **models** and compose them into one asset.
+Each model is **materialized separately** — its own density field, its
+own marching-cubes pass — and the resulting meshes are merged. Parts
+therefore never blend into each other: a kilt can hug a body, teeth
+can sit in a mouth, eyes in sockets, without their densities or colors
+interacting. The single-model form remains fully supported; this is an
+additional tool, not a replacement.
+
+```
+model kilt:
+.bbb.
+bbbbb
+---
+.bbb.
+bbbbb
+
+place kilt +0 +15 +0
+place kilt +0 +25 +0     # placements are instances
+```
+
+- `model <name>:` starts a model section; every slot after it belongs
+  to that model until the next `model` header. Root (unnamed) layers
+  must appear before the first model header. Model names share the
+  layer-definition namespace rules but are their own namespace.
+- Layers inside a model stack from that model's local y = 0.
+- `place <name> <dx> <dy> <dz>` materializes an instance at a voxel
+  offset (non-negative integers). A model may be placed any number of
+  times; a model that is never placed is simply unused.
+- Layer definitions (`name:` / `*name`) are file-global and may be
+  referenced from any model. The palette, rig declarations, and
+  animations are file-global as well.
+- Joint markers may appear inside a model's layers; the joint's
+  position is the marker position plus the placement offset. A model
+  containing joint markers must be placed exactly once.
+- Skinning and animation apply to the merged result: parts bind to
+  bones through the union of all placed solids, so an accessory
+  follows the body it sits on.
+
+## 8. Joints and bones (animation rig)
 
 A model may declare an animation rig alongside the palette: named
 **joints** (points in the voxel grid) connected by **bones** (two
@@ -166,7 +213,7 @@ Declarations live with the palette and reuse its `=` syntax:
 ```
 k = joint knee_l +z # 'k' is a joint marker character; the optional
 a = joint ankle_l   # name can stand in for it in animations; the
-shin_l = bone k a   # optional bend hint (+z) is used by IK (see 8)
+shin_l = bone k a   # optional bend hint (+z) is used by IK (see 9)
 hand_r = bone W F +z    # optional facing: this bone twists about its
 ```                     # own axis to keep its rest +z face forward
 
@@ -208,7 +255,7 @@ joint pairs. It does not affect the voxel data; how a consumer animates
 the model (e.g. skinning voxels to the nearest bone) is out of scope
 for the format.
 
-## 8. Animations
+## 9. Animations
 
 Animations are keyframed **positions**, never rotations. This is a
 deliberate choice for authors — human or LLM — who are good at saying
@@ -270,11 +317,16 @@ point the hand) fixes the bone's direction, and a bone's declared
 so its rest-space facing direction keeps pointing that way in world
 space (a palm keeps facing forward through an arm raise).
 
-Voxels are skinned to the nearest bone in the rest pose and move
-rigidly with it. A renderer that cannot animate may ignore `anim`
-slots entirely; they add no voxels.
+**Skinning** defaults to `rigid`: voxels bind to the nearest bone
+(geodesically, through the body) and move rigidly with it — right for
+articulated things like skeletons, but bent joints show seams. A file
+may declare `skin elastic` (a bare line alongside the palette): each
+vertex then blends the two geodesically-nearest bones, so joints
+stretch smoothly like game-engine flesh. A renderer that cannot
+animate may ignore `anim` slots and skin declarations entirely; they
+add no voxels.
 
-## 9. Semantics
+## 10. Semantics
 
 An FXL file denotes a sparse map from integer coordinates to RGBA:
 
@@ -290,7 +342,7 @@ the model. There is no other state: no transforms or macros. One file,
 one model, origin at the first character of the first line of the
 bottom layer.
 
-## 10. Grammar (EBNF)
+## 11. Grammar (EBNF)
 
 Applied after comment stripping and blank-line removal:
 
@@ -311,12 +363,15 @@ bend      = ( "+" | "-" ) , axis ,
 axis      = "x" | "y" | "z" ;
 easing    = "linear" | "ease" | "ease-in" | "ease-out" ;
 slot      = def | ref | layer | animslot ;
+modelhead = "model" , name , ":" ;
+placedecl = "place" , name , delta , delta , delta ;
 def       = name , ":" , { row } ;        (* template: emits nothing *)
 layer     = { row } ;                     (* possibly empty *)
 ref       = "*" , name , [ count ] ;
 name      = ( letter | "_" ) , { letter | digit | "_" } ;
 count     = digit , { digit } ;           (* >= 1 *)
-char      = letter | digit ;              (* A–Z a–z 0–9 *)
+char      = ? any single code point except
+            reserved and whitespace ? ;
 color     = 6 * hex | 8 * hex ;
 row       = cell , { cell } ;
 cell      = char | "." ;
@@ -327,7 +382,7 @@ delimited by `---` exactly like any other slot, but emits no slice.
 Definitions may appear anywhere in the slot sequence, as long as each
 name is defined before its first reference.
 
-## 11. Errors
+## 12. Errors
 
 A conforming reader rejects the file (with line number) on:
 
@@ -357,3 +412,7 @@ A conforming reader rejects the file (with line number) on:
 | keyframe for an unknown joint | `0%: wing_l +0 +0 +0` |
 | malformed keyframe or percent > 100 | `120%: ...` |
 | anim slot mixed with grid rows | rows after `anim ...:` |
+| place of an undefined model | `place hat ...` with no `model hat:` |
+| duplicate model name | two `model kilt:` headers |
+| negative place offset | `place kilt -1 +0 +0` |
+| jointed model placed zero or multiple times | markers need one placement |

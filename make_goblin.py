@@ -13,13 +13,13 @@ CX, CZ = 22, 11
 g = np.full((W, H, D), '.', dtype='<U1')
 halo_ok = np.zeros((W, H, D), bool)
 
-SOLID = set('gGerbtys')
+SOLID = set('gGerbtysR')
 PROTECT = set('tys')      # never carved
 
 SHELL_ALPHAS = [104, 92, 80, 68, 56, 44, 33, 22, 12, 5]
 SHELL_CHARS = '0123456789'
 ALPHA_OF = {'g': 255, 'G': 192, 'e': 158, 'r': 131, 'b': 255,
-            't': 255, 'y': 255, 's': 200, '.': 0}
+            't': 255, 'y': 255, 's': 200, 'R': 255, '.': 0}
 for _c, _a in zip(SHELL_CHARS, SHELL_ALPHAS):
     ALPHA_OF[_c] = _a
 LADDER = [(255, 'g'), (192, 'G'), (158, 'e'), (131, 'r')] +     list(zip(SHELL_ALPHAS, SHELL_CHARS))
@@ -237,6 +237,40 @@ for ex0 in (16, 25):                               # eye sockets
         for yy in (47, 48):
             put(xx, yy, 16, 'y', halo=False)
 
+# Rope belt around the tunic waist: march outward per angle, lay rope
+# on the lateral surface; knot and dangling ends at the front.
+ROPE_Y = 18
+zk = None
+for th in np.linspace(0, 2 * np.pi, 512):
+    dxv, dzv = np.cos(th), np.sin(th)
+    edge = None
+    rr = 2.0
+    while rr < 11.0:
+        xx = int(round(CX + dxv * rr))
+        zz = int(round(CZ + dzv * rr))
+        if not (0 <= xx < W and 0 <= zz < D):
+            break
+        if ALPHA_OF.get(g[xx, ROPE_Y, zz], 0) >= 127 \
+                and g[xx, ROPE_Y, zz] != 'R':
+            edge = rr
+        rr += 0.25
+    if edge is None:
+        continue
+    for rp in (edge, edge + 0.7):
+        xx = int(round(CX + dxv * rp))
+        zz = int(round(CZ + dzv * rp))
+        if 1 <= xx < W - 1 and 1 <= zz < D - 1:
+            put(xx, ROPE_Y, zz, 'R', halo=False)
+    if abs(th - np.pi / 2) < 0.05:
+        zk = int(round(CZ + edge))
+if zk is not None:
+    for xx in (CX - 1, CX, CX + 1):                    # knot
+        put(xx, ROPE_Y, zk + 1, 'R', halo=False)
+    put(CX, ROPE_Y, zk + 2, 'R', halo=False)
+    for yy in (16, 17):                                # dangling ends
+        put(CX - 1, yy, zk + 1, 'R', halo=False)
+        put(CX + 1, yy, zk + 1, 'R', halo=False)
+
 # ---- 10-grade density falloff (distance-field shells) ----------------------
 import math as _math
 
@@ -292,7 +326,7 @@ SHARP_ZONES = [
     (15, 20, 45, 50, 14, 21),   # left eye
     (24, 29, 45, 50, 14, 21),   # right eye
 ]
-hardm = np.isin(g, list('btys'))
+hardm = np.isin(g, list('btysR'))
 near_hard = np.zeros_like(hardm)
 for _dx in (-1, 0, 1):
     for _dy in (-1, 0, 1):
@@ -374,6 +408,9 @@ out.append('b = 6B4A2B hard     # loincloth, brown')
 out.append('t = F5EFD8 hard     # fangs')
 out.append('s = 1A2010C8 hard   # mouth/socket back walls, dark')
 out.append('y = FFD41E hard     # eye glow, yellow')
+out.append('R = 9A7B4F hard     # rope belt')
+out.append('')
+out.append('skin elastic')
 out.append('')
 JOINT_NAMES = {
     'a': 'ankle_l', 'A': 'ankle_r', 'm': 'toe_l', 'M': 'toe_r',
@@ -436,18 +473,18 @@ out.append('0%: ankle_r +0 +1 -5')
 out.append('25%: ankle_r +0 +3 +0')
 out.append('50%: ankle_r +0 +1 +5')
 out.append('100%: ankle_r +0 +1 -5')
-out.append('0%: elbow_l +0 +0.5 -3')
-out.append('50%: elbow_l +0 +0.5 +3')
-out.append('100%: elbow_l +0 +0.5 -3')
-out.append('0%: elbow_r +0 +0.5 +3')
-out.append('50%: elbow_r +0 +0.5 -3')
-out.append('100%: elbow_r +0 +0.5 +3')
-out.append('0%: wrist_l +0 +1 -6')
-out.append('50%: wrist_l +0 +1 +6')
-out.append('100%: wrist_l +0 +1 -6')
-out.append('0%: wrist_r +0 +1 +6')
-out.append('50%: wrist_r +0 +1 -6')
-out.append('100%: wrist_r +0 +1 +6')
+out.append('0%: elbow_l +0 +0.5 -2.5')
+out.append('50%: elbow_l +0 +1 +3.5')
+out.append('100%: elbow_l +0 +0.5 -2.5')
+out.append('0%: elbow_r +0 +1 +3.5')
+out.append('50%: elbow_r +0 +0.5 -2.5')
+out.append('100%: elbow_r +0 +1 +3.5')
+out.append('0%: wrist_l +0 +1 -5')
+out.append('50%: wrist_l +0 +4 +7.5')
+out.append('100%: wrist_l +0 +1 -5')
+out.append('0%: wrist_r +0 +4 +7.5')
+out.append('50%: wrist_r +0 +1 -5')
+out.append('100%: wrist_r +0 +4 +7.5')
 
 with open('goblin.fxl', 'w') as f:
     f.write('\n'.join(out) + '\n')

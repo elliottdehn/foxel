@@ -82,11 +82,10 @@ def main():
     s = args.scale
 
     try:
-        palette, layers, (joints, bones, anims, hints) = \
+        palette, scene, (joints, bones, anims, hints, skin_mode) = \
             render.parse_fxl(args.input)
-        dens, col, hard = render.build_grids(palette, layers)
-        tri_pos, tri_col, tri_hard = render.marching_cubes(dens, col,
-                                                           hard=hard)
+        tri_pos, tri_col, tri_hard, dens = render.mesh_scene(palette,
+                                                             scene)
     except render.FxlError as e:
         sys.exit('error: %s' % e)
 
@@ -116,12 +115,19 @@ def main():
         rest = {c: np.array([p[0] + .5, p[1] + .5, p[2] + .5])
                 for c, p in joints.items()}
         root, parent, children = render.build_tree(joints, bones)
-        bind = render.skin_bind(tri_pos, dens, rest, bones)
-
         jattr = np.zeros((len(verts), 4), np.uint8)
-        jattr[:, 0] = np.repeat(bind, 3)
         wattr = np.zeros((len(verts), 4), np.float32)
-        wattr[:, 0] = 1.0
+        if skin_mode == 'elastic':
+            eidx, ewts = render.skin_bind_elastic(tri_pos, dens, rest,
+                                                  bones)
+            jattr[:, 0] = eidx[:, 0]
+            jattr[:, 1] = eidx[:, 1]
+            wattr[:, 0] = ewts[:, 0]
+            wattr[:, 1] = ewts[:, 1]
+        else:
+            bind = render.skin_bind(tri_pos, dens, rest, bones)
+            jattr[:, 0] = np.repeat(bind, 3)
+            wattr[:, 0] = 1.0
         attributes['JOINTS_0'] = glb.accessor(jattr, 'VEC4', CT_UBYTE)
         glb.accessors[-1]['normalized'] = False
         attributes['WEIGHTS_0'] = glb.accessor(wattr, 'VEC4', CT_FLOAT)
