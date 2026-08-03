@@ -126,5 +126,5 @@ and a rear-up threat display).
 
 <p align="center">
   <img src="media/spider.png" width="360" alt="Jeweled orb-weaver spider">
-  <img src="media/spider_walk.png" width="360" alt="Spider walk gait (animated)">
+  <img src="media/spider_crawl.png" width="360" alt="Spider crawl gait (animated)">
 </p>
