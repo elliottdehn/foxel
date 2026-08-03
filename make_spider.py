@@ -1,13 +1,17 @@
 #!/usr/bin/env python3
-"""Generate spider.fxl: a static jeweled orb-weaver spider in FXL.
+"""Generate spider.fxl: a rigged, animated jeweled orb-weaver in FXL.
 
 Deep-teal abdomen with gold folium markings, dark bronze
 cephalothorax with an amber median stripe, eight arched legs (dark
 femurs, amber tibiae, dark tarsi), a cluster of glowing gold eyes
-lined in near-black, crisp ivory fangs. No rig, no animation.
+lined in near-black, crisp ivory fangs. 38-joint rig with double-bend
+legs; crawl / walk / idle / threat animations.
 
 Analytic-density technique after make_goblin.py, vectorized with
-numpy for the larger grid.
+numpy for the larger grid. Uses current foxel features: Unicode shell
+grades (the old ASCII budget forced a trimmed ladder), hard materials
+for eyes and fangs, composed models so face features cannot bleed
+into the body, and elastic skinning for the leg joints.
 """
 import numpy as np
 
@@ -25,8 +29,8 @@ halo_ok = np.zeros((W, H, D), bool)
 # surface-position resolution instead of terracing. Grade count is
 # trimmed to leave exactly 34 palette chars for the joint markers.
 SOLID_ALPHAS = [255, 192, 158, 138, 131]
-SHELL_ALPHAS = [124, 117, 110, 104, 92, 80]
-SHELL_CHARS = '012345'
+SHELL_ALPHAS = [124, 117, 110, 104, 97, 92, 86, 80, 74, 68]
+SHELL_CHARS = '012345αβγδ'
 
 MATS = {
     'teal':  ('TUVtv', '1F8A80'),     # abdomen jewel teal
@@ -48,6 +52,16 @@ for ch, a in zip(SHELL_CHARS, SHELL_ALPHAS):
     ALPHA_OF[ch] = a
 for ch, (_hex, a) in ACCENTS.items():
     ALPHA_OF[ch] = a
+
+g_eyes = np.full((W, H, D), '.', dtype='<U1')
+g_fangs = np.full((W, H, D), '.', dtype='<U1')
+
+
+def put_part(gp, x, y, z, ch):
+    x, y, z = int(round(x)), int(round(y)), int(round(z))
+    if 0 <= x < W and 0 <= y < H and 0 <= z < D:
+        gp[x, y, z] = ch
+
 
 XX, YY, ZZ = np.meshgrid(np.arange(W, dtype=float),
                          np.arange(H, dtype=float),
@@ -197,7 +211,6 @@ for side, sname in ((-1.0, 'l'), (1.0, 'r')):
 _palette_chars = set(''.join(c for c, _ in MATS.values())
                      + SHELL_CHARS + 'oyf')
 assert not _palette_chars & set(JOINTS), 'joint chars collide with colors'
-assert len(JOINTS) == 38 and len(_palette_chars) + len(JOINTS) == 62
 
 # spinnerets: small dark taper at the abdomen's rear
 soft_cone((40.0, 13.0, 16.5), (40.0, 10.5, 13.0), 1.4, 0.5, 'dark')
@@ -245,7 +258,7 @@ for ex, ey, er in EYES:
         for y in range(int(ey - 2), int(ey + 3)):
             for z in range(int(ez - 2), int(ez + 3)):
                 if (x - cx) ** 2 + (y - ey) ** 2 + (z - ez) ** 2 <= er * er:
-                    put(x, y, z, 'y', halo=False)
+                    put_part(g_eyes, x, y, z, 'y')
 
 # ---- fangs: crisp, no shells -----------------------------------------------
 for side in (-1, 1):
@@ -255,7 +268,7 @@ for side in (-1, 1):
         for x in range(int(fx - 2), int(fx + 3)):
             for zz in range(int(z - 2), int(z + 3)):
                 if (x - fx) ** 2 + (zz - z) ** 2 <= r * r + 0.25:
-                    put(x, y, zz, 'f', halo=False)
+                    put_part(g_fangs, x, y, zz, 'f')
 
 # ---- emit FXL --------------------------------------------------------------
 SOLID = {ch for ch, a in ALPHA_OF.items() if a >= 127}
@@ -298,9 +311,11 @@ for name, (chars, rgb) in MATS.items():
 for ci, al in enumerate(SHELL_ALPHAS):
     out.append('%s = %s%02X  # density shell %d, alpha %d'
                % (SHELL_CHARS[ci], SHELL_RGB, al, ci + 1, al))
-out.append('o = 12101A8C  # eye-cluster liner, near-black')
-out.append('y = FFC83C  # eye glow, gold')
-out.append('f = EDE3CC  # fangs, ivory')
+out.append('o = 12101A8C hard  # eye-cluster liner, near-black')
+out.append('y = FFC83C hard  # eye glow, gold')
+out.append('f = EDE3CC hard  # fangs, ivory')
+out.append('')
+out.append('skin elastic')
 out.append('')
 for ch in JOINTS:
     out.append('%s = joint %s%s'
@@ -334,6 +349,27 @@ while y < H_used:
         out.extend(rows)
         out.append('---')
     y += run
+
+def _part_layers(gp):
+    ys = [y for y in range(H) if (gp[:, y, :] != '.').any()]
+    y0 = min(ys)
+    pls = []
+    for y in range(y0, max(ys) + 1):
+        pls.append([''.join(gp[x, y, z] for x in range(W))
+                    for z in range(D)])
+    return y0, pls
+
+
+place_lines = []
+for pname, gp in (('eyes', g_eyes), ('fangs', g_fangs)):
+    py0, plyrs = _part_layers(gp)
+    out.append('model %s:  # placed at y=%d' % (pname, py0))
+    for rows in plyrs:
+        out.extend(rows)
+        out.append('---')
+    place_lines.append('place %s +0 +%d +0' % (pname, py0))
+out.extend(place_lines)
+out.append('')
 
 # ---- animations ------------------------------------------------------------
 def kf(pct, joint, dx, dy, dz, ease=''):
@@ -432,3 +468,10 @@ with open('spider.fxl', 'w') as f:
 n = int(np.isin(g, list(SOLID)).sum())
 print('spider.fxl: %d solid voxels, %d layers (%d unique, %d shared defs)'
       % (n, H_used, len(counts), len(names)))
+
+# Disconnected things must stay disconnected (AGENTS.md).
+import render as _render
+_pal, _scene, _rig = _render.parse_fxl('spider.fxl')
+_touching = _render.check_part_clearance(_pal, _scene)
+assert not _touching, 'accessory parts touch: %s' % _touching
+print('part clearance OK')

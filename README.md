@@ -118,3 +118,13 @@ sharp-zone facial features, pointed cone ears and nose, and a waddle.
 <p align="center">
   <img src="media/goblin.png" width="300" alt="Rigged goblin">
 </p>
+
+`make_spider.py` is a jeweled orb-weaver: multi-material analytic
+densities, Unicode shell grades, composed eye/fang models, a 38-joint
+rig with double-bend legs, and four animations (crawl, walk, idle,
+and a rear-up threat display).
+
+<p align="center">
+  <img src="media/spider.png" width="360" alt="Jeweled orb-weaver spider">
+  <img src="media/spider_walk.png" width="360" alt="Spider walk gait (animated)">
+</p>
