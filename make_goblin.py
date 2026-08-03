@@ -13,6 +13,17 @@ CX, CZ = 22, 11
 g = np.full((W, H, D), '.', dtype='<U1')
 halo_ok = np.zeros((W, H, D), bool)
 
+# Composed parts: materialized separately from the body (LANG.md 7).
+gk = np.full((W, H, D), '.', dtype='<U1')   # kilt + rope
+gt = np.full((W, H, D), '.', dtype='<U1')   # teeth + gums + mouth wall
+ge = np.full((W, H, D), '.', dtype='<U1')   # eyes: liners + glow
+
+
+def put_part(gp, x, y, z, ch):
+    x, y, z = int(round(x)), int(round(y)), int(round(z))
+    if 0 <= x < W and 0 <= y < H and 0 <= z < D:
+        gp[x, y, z] = ch
+
 SOLID = set('gGerbtysR')
 PROTECT = set('tys')      # never carved
 
@@ -157,12 +168,15 @@ for side in (-1, 1):
 # ---- pelvis + loincloth ----------------------------------------------------
 for yy in (16, 17, 18):
     fill_ellipse(yy, CX, CZ, 6.5, 4.0, 'g')
-for yy in (15, 16, 17, 18):                        # loincloth band
-    fill_ellipse(yy, CX, CZ, 7.5, 5.0, 'b', halo=False)
-for yy in range(11, 15):                           # front flap
+for yy in (15, 16, 17, 18):                        # loincloth band (kilt)
+    for xx in range(W):
+        for zz in range(D):
+            if ((xx - CX) / 7.5) ** 2 + ((zz - CZ) / 5.0) ** 2 <= 1.0:
+                put_part(gk, xx, yy, zz, 'b')
+for yy in range(11, 15):                           # front flap (kilt)
     for xx in range(20, 25):
         for zz in (15, 16):
-            put(xx, yy, zz, 'b', halo=False)
+            put_part(gk, xx, yy, zz, 'b')
 
 # ---- pot belly, chest, hunch ----------------------------------------------
 soft_ellipsoid(CX, 24, CZ + 1.5, 9.5, 6.5, 7.5)    # belly
@@ -217,25 +231,27 @@ soft_cone(2 * CX - 15, 52.5, 11, 2 * CX - 3.5, 55, 11, 3.6, 1.5, 0.4, 0.4)
 carve_box(17, 27, 44, 45, 17, 19)                  # wide mouth slit
 for xx in range(17, 28):                           # dark mouth back wall
     for yy in (44, 45):
-        put(xx, yy, 16, 's', halo=False)
+        put_part(gt, xx, yy, 16, 's')
+        carve.append((xx, yy, 16))
 for fx in (18, 26):                                # fangs rise from the jaw
     for yy in (43, 44, 45):
-        put(fx, yy, 18, 't', halo=False)
-        put(fx, yy, 19, 't', halo=False)
-    for zz in (18, 19):                            # dark gums: fangs never
-        put(fx, 42, zz, 's', halo=False)           # touch green directly
-        put(fx - 1, 43, zz, 's', halo=False)
-        put(fx + 1, 43, zz, 's', halo=False)
+        put_part(gt, fx, yy, 18, 't')
+        put_part(gt, fx, yy, 19, 't')
+    for zz in (18, 19):                            # dark gums under the fangs
+        for gx, gy in ((fx, 42), (fx - 1, 43), (fx + 1, 43)):
+            put_part(gt, gx, gy, zz, 's')
+            carve.append((gx, gy, zz))
     carve_box(fx, fx, 46, 46, 17, 20)              # lip notch above the tip
 for ex0 in (16, 25):                               # eye sockets
     for xx in range(ex0, ex0 + 4):                 # dark lining, 2 deep
         for yy in range(46, 50):
             for zz in (15, 16):
-                put(xx, yy, zz, 's', halo=False)
+                put_part(ge, xx, yy, zz, 's')
+                carve.append((xx, yy, zz))
     carve_box(ex0, ex0 + 3, 46, 49, 17, 19)
     for xx in (ex0 + 1, ex0 + 2):                  # yellow core on the wall
         for yy in (47, 48):
-            put(xx, yy, 16, 'y', halo=False)
+            put_part(ge, xx, yy, 16, 'y')
 
 # Rope belt around the tunic waist: march outward per angle, lay rope
 # on the lateral surface; knot and dangling ends at the front.
@@ -260,16 +276,16 @@ for th in np.linspace(0, 2 * np.pi, 512):
         xx = int(round(CX + dxv * rp))
         zz = int(round(CZ + dzv * rp))
         if 1 <= xx < W - 1 and 1 <= zz < D - 1:
-            put(xx, ROPE_Y, zz, 'R', halo=False)
+            put_part(gk, xx, ROPE_Y, zz, 'R')
     if abs(th - np.pi / 2) < 0.05:
         zk = int(round(CZ + edge))
 if zk is not None:
     for xx in (CX - 1, CX, CX + 1):                    # knot
-        put(xx, ROPE_Y, zk + 1, 'R', halo=False)
-    put(CX, ROPE_Y, zk + 2, 'R', halo=False)
+        put_part(gk, xx, ROPE_Y, zk + 1, 'R')
+    put_part(gk, CX, ROPE_Y, zk + 2, 'R')
     for yy in (16, 17):                                # dangling ends
-        put(CX - 1, yy, zk + 1, 'R', halo=False)
-        put(CX + 1, yy, zk + 1, 'R', halo=False)
+        put_part(gk, CX - 1, yy, zk + 1, 'R')
+        put_part(gk, CX + 1, yy, zk + 1, 'R')
 
 # ---- 10-grade density falloff (distance-field shells) ----------------------
 import math as _math
@@ -454,6 +470,27 @@ while y < H_used:
         out.extend(rows)
         out.append('---')
     y += run
+
+def _part_layers(gp):
+    ys = [y for y in range(H) if (gp[:, y, :] != '.').any()]
+    y0 = min(ys)
+    out_layers = []
+    for y in range(y0, max(ys) + 1):
+        out_layers.append([''.join(gp[x, y, z] for x in range(W))
+                           for z in range(D)])
+    return y0, out_layers
+
+
+place_lines = []
+for pname, gp in (('kilt', gk), ('teeth', gt), ('eyes', ge)):
+    py0, plyrs = _part_layers(gp)
+    out.append('model %s:  # placed at y=%d' % (pname, py0))
+    for rows in plyrs:
+        out.extend(rows)
+        out.append('---')
+    place_lines.append('place %s +0 +%d +0' % (pname, py0))
+out.extend(place_lines)
+out.append('')
 
 out.append('anim walk 0.9s loop:')
 out.append('0%: chest +0 +0 +0')
