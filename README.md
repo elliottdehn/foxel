@@ -1,9 +1,10 @@
 # foxel
 
 <p align="center">
-  <img src="media/wave.png" width="250" alt="Skeleton wave (animated)">
-  <img src="media/goblin_walk.png" width="250" alt="Goblin walk cycle (animated)">
-  <img src="media/spider_crawl.png" width="360" alt="Spider crawl gait (animated)">
+  <img src="media/wave.png" width="220" alt="Skeleton wave (animated)">
+  <img src="media/goblin_walk.png" width="220" alt="Goblin walk cycle (animated)">
+  <img src="media/spider_crawl.png" width="320" alt="Spider crawl gait (animated)">
+  <img src="media/horror_idle.png" width="220" alt="Eldritch horror idle (animated)">
 </p>
 
 ## Install
@@ -128,4 +129,13 @@ and a rear-up threat display).
 <p align="center">
   <img src="media/spider.png" width="360" alt="Jeweled orb-weaver spider">
   <img src="media/spider_crawl.png" width="360" alt="Spider crawl gait (animated)">
+</p>
+
+`make_horror.py` is an eldritch horror: a pear of violet flesh on a
+skirt of eight curling tentacles, a carved-cavity maw of needle teeth,
+ten lidless eyes, and a restless idle where a ripple of lifts and
+re-plants runs around the skirt while the arc tentacles writhe.
+
+<p align="center">
+  <img src="media/horror_idle.png" width="300" alt="Eldritch horror idle (animated)">
 </p>

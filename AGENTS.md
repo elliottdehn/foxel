@@ -21,6 +21,8 @@ field** and sub-threshold voxels sculpt smooth surfaces.
 | `mc_tables.py` | MC lookup tables, extracted verbatim from `goxel/src/marchingcube.c`. Never edit. |
 | `make_skeleton.py` | Generates `skeleton.fxl`. Body = parameterized loops; skull = hand-drawn ASCII layers; rig + animations emitted at the end. |
 | `make_goblin.py` | Generates `goblin.fxl`. Demonstrates the newer analytic-density techniques: soft ellipsoids/cones, 10-grade shells, sharp zones, dark-liner color isolation. |
+| `make_spider.py` | Generates `spider.fxl`. Multi-material grade ladders, double-bend leg chains, composed hard parts. |
+| `make_horror.py` | Generates `horror.fxl`. Catmull-Rom tentacles, smooth boolean-subtracted maw cavity, measured tooth planting, analytic weld checks between neighboring tentacles. |
 | `skeleton.fxl` | GENERATED — never hand-edit. Change `make_skeleton.py` and rerun. |
 | `png2mp4.py` | APNG → H.264 MP4 via macOS AVFoundation (embedded Swift helper). No ffmpeg on this machine. |
 | `fxl2gltf.py` | FXL → .glb (mesh + skeleton + baked animations) for Godot etc. |
