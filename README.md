@@ -3,6 +3,7 @@
 <p align="center">
   <img src="media/wave.png" width="250" alt="Skeleton wave (animated)">
   <img src="media/goblin_walk.png" width="250" alt="Goblin walk cycle (animated)">
+  <img src="media/spider_crawl.png" width="360" alt="Spider crawl gait (animated)">
 </p>
 
 ## Install
