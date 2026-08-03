@@ -48,11 +48,14 @@ grid before meshing:
 ```python
 import render
 palette, layers, (joints, bones, anims, hints) = render.parse_fxl('skeleton.fxl')
-dens, col = render.build_grids(palette, layers)
+dens, col, hard = render.build_grids(palette, layers)
 dens = dens[:, 64:, :].copy(); col = col[:, 64:, :].copy()  # head only
+hard = hard[:, 64:, :].copy()
 dens[:, 0, :] = 0                                # cap the cut cleanly
-tp, tc = render.marching_cubes(dens, col)
-render.write_png('head.png', render.render(tp, tc, 800, 800, 16, -4))
+tp, tc, th = render.marching_cubes(dens, col, hard=hard)
+tn = render.smooth_normals(tp, tri_hard=th)
+render.write_png('head.png',
+    render.render(tp, tc, 800, 800, 16, -4, tri_norm=tn, tri_hard=th))
 ```
 
 To render a single animation pose, copy the loop body from `render.py`
@@ -87,11 +90,15 @@ drift between frames).
   shells can't fog them; dark back-wall voxels make them read black.
   1-voxel features get color-averaged into invisibility — make dark
   features 2+ voxels or use carved holes.
-- **Color isolation**: MC triangle color is the mean of its corners, so
-  a bright feature voxel (eye glow, tooth) that touches skin bleeds a
-  soft halo of its color. Line such features with dark cells on every
-  face that would touch skin — the bleed becomes a dark outline, which
-  reads as intentional (eyeliner, gums).
+- **Hard materials are the paradigm for hard lines** (LANG.md §3):
+  `t = F5EFD8 hard` in the palette. Hard-sourced vertices snap to the
+  half-voxel grid, triangles touching a hard voxel take its exact
+  color (no blending — this is what stops eye/tooth color bleed), and
+  hard surfaces shade flat. Use for teeth, eyes, cloth hems, dark
+  cavity walls. Generators should also build hard materials with
+  `halo=False` and strip shells adjacent to hard voxels (see
+  make_goblin.py). Dark liner cells remain useful when you WANT an
+  outline (eyeliner, gums) rather than a raw color border.
 - Sub-threshold shells carry NO connectivity: a limb "attached" only
   through shell voxels is visually detached. Solid paths only. The
   inverse also bites: solids closer than ~3 voxels visually WELD as

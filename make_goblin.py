@@ -158,11 +158,11 @@ for side in (-1, 1):
 for yy in (16, 17, 18):
     fill_ellipse(yy, CX, CZ, 6.5, 4.0, 'g')
 for yy in (15, 16, 17, 18):                        # loincloth band
-    fill_ellipse(yy, CX, CZ, 7.5, 5.0, 'b')
+    fill_ellipse(yy, CX, CZ, 7.5, 5.0, 'b', halo=False)
 for yy in range(11, 15):                           # front flap
     for xx in range(20, 25):
         for zz in (15, 16):
-            put(xx, yy, zz, 'b')
+            put(xx, yy, zz, 'b', halo=False)
 
 # ---- pot belly, chest, hunch ----------------------------------------------
 soft_ellipsoid(CX, 24, CZ + 1.5, 9.5, 6.5, 7.5)    # belly
@@ -292,6 +292,16 @@ SHARP_ZONES = [
     (15, 20, 45, 50, 14, 21),   # left eye
     (24, 29, 45, 50, 14, 21),   # right eye
 ]
+hardm = np.isin(g, list('btys'))
+near_hard = np.zeros_like(hardm)
+for _dx in (-1, 0, 1):
+    for _dy in (-1, 0, 1):
+        for _dz in (-1, 0, 1):
+            if (_dx, _dy, _dz) != (0, 0, 0):
+                near_hard |= _shift(hardm, _dx, _dy, _dz)
+shellm = np.isin(g, list(SHELL_CHARS))
+g[shellm & near_hard] = '.'
+
 for x0, x1, y0, y1, z0, z1 in SHARP_ZONES:
     for x in range(x0, x1 + 1):
         for y in range(y0, y1 + 1):
@@ -360,10 +370,10 @@ out.append('r = 58A83C83        # skin grade, alpha 131')
 for ci, al in enumerate(SHELL_ALPHAS):
     out.append('%s = 58A83C%02X        # density shell %d, alpha %d'
                % (SHELL_CHARS[ci], al, ci + 1, al))
-out.append('b = 6B4A2B          # loincloth, brown')
-out.append('t = F5EFD8          # fangs')
-out.append('s = 1A2010C8        # mouth/socket back walls, dark')
-out.append('y = FFD41E          # eye glow, yellow')
+out.append('b = 6B4A2B hard     # loincloth, brown')
+out.append('t = F5EFD8 hard     # fangs')
+out.append('s = 1A2010C8 hard   # mouth/socket back walls, dark')
+out.append('y = FFD41E hard     # eye glow, yellow')
 out.append('')
 JOINT_NAMES = {
     'a': 'ankle_l', 'A': 'ankle_r', 'm': 'toe_l', 'M': 'toe_r',

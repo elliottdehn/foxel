@@ -84,8 +84,9 @@ def main():
     try:
         palette, layers, (joints, bones, anims, hints) = \
             render.parse_fxl(args.input)
-        dens, col = render.build_grids(palette, layers)
-        tri_pos, tri_col = render.marching_cubes(dens, col)
+        dens, col, hard = render.build_grids(palette, layers)
+        tri_pos, tri_col, tri_hard = render.marching_cubes(dens, col,
+                                                           hard=hard)
     except render.FxlError as e:
         sys.exit('error: %s' % e)
 
@@ -94,9 +95,9 @@ def main():
 
     glb = Glb()
     verts = tri_pos.reshape(-1, 3).astype(np.float32) * s
-    normals = render.smooth_normals(tri_pos).reshape(-1, 3) \
-        .astype(np.float32)
-    colors = np.repeat(tri_col.mean(axis=1) / 255.0, 3,
+    normals = render.smooth_normals(tri_pos, tri_hard=tri_hard) \
+        .reshape(-1, 3).astype(np.float32)
+    colors = np.repeat(render.base_colors(tri_col, tri_hard), 3,
                        axis=0).astype(np.float32)
 
     attributes = {

@@ -72,6 +72,13 @@ By convention the whole palette goes at the top of the file. A trailing
   `:`, `*`, and whitespace.
 - `<color>` is 6 or 8 hex digits (case-insensitive): red, green, blue,
   and optional alpha. Alpha defaults to `FF` (255).
+- A binding may end with the word **`hard`**: `t = F5EFD8 hard`. Hard
+  materials render with crisp edges: their mesh vertices snap to
+  half-voxel positions (IMPL.md §6 flat mode, applied per material),
+  triangles touching a hard voxel take its exact color instead of
+  blending across the boundary, and their surfaces shade flat. Use it
+  for teeth, eyes, cloth hems, blades — anything that should read as a
+  hard line against soft surroundings. Default is soft.
 - Alpha is **density**, matching goxel's model (see IMPL.md §1): 255 is
   a full voxel; intermediate values produce softer surfaces under
   marching-cubes rendering. Alpha `00` is not allowed — use `.`.
@@ -290,7 +297,7 @@ Applied after comment stripping and blank-line removal:
 ```ebnf
 file      = { palette | jointdecl | bonedecl } ,
             [ slot , { "---" , slot } , [ "---" ] ] ;
-palette   = char , "=" , color ;
+palette   = char , "=" , color , [ "hard" ] ;
 jointdecl = char , "=" , "joint" , [ name ] , [ bend ] ;
 bonedecl  = name , "=" , "bone" , char , char , [ bend ] ;
 animslot  = animhead , { keyframe } ;      (* a slot form, like def *)

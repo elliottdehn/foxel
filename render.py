@@ -210,13 +210,18 @@ def parse_fxl(path):
                     err(lineno, 'bad palette character %r' % lhs)
                 if lhs in palette or lhs in joints:
                     err(lineno, 'duplicate palette binding %r' % lhs)
-                if not COLOR_RE.match(rhs):
-                    err(lineno, 'malformed color %r' % rhs)
-                r, g, b = (int(rhs[i:i + 2], 16) for i in (0, 2, 4))
-                a = int(rhs[6:8], 16) if len(rhs) == 8 else 255
+                cparts = rhs.split()
+                is_hard = len(cparts) == 2 and cparts[1] == 'hard'
+                if len(cparts) > 1 and not is_hard:
+                    err(lineno, 'malformed palette binding %r' % rhs)
+                cval = cparts[0]
+                if not COLOR_RE.match(cval):
+                    err(lineno, 'malformed color %r' % cval)
+                r, g, b = (int(cval[i:i + 2], 16) for i in (0, 2, 4))
+                a = int(cval[6:8], 16) if len(cval) == 8 else 255
                 if a == 0:
                     err(lineno, "alpha of zero is not allowed, use '.'")
-                palette[lhs] = (r, g, b, a)
+                palette[lhs] = (r, g, b, a, is_hard)
         else:
             if cur_ref is not None:
                 err(lineno, 'grid row after a reference in the same slot')
@@ -283,22 +288,24 @@ def build_grids(palette, layers):
         raise FxlError('model is empty')
     dens = np.zeros((w + 2, h + 2, d + 2), np.uint8)
     col = np.zeros((w + 2, h + 2, d + 2, 3), np.uint8)
+    hard = np.zeros((w + 2, h + 2, d + 2), bool)
     for y, rows in enumerate(layers):
         for z, row in enumerate(rows):
             for x, ch in enumerate(row):
                 if ch in palette:
-                    r, g, b, a = palette[ch]
+                    r, g, b, a, hd = palette[ch]
                     dens[x + 1, y + 1, z + 1] = a
                     col[x + 1, y + 1, z + 1] = (r, g, b)
-    return dens, col
+                    hard[x + 1, y + 1, z + 1] = hd
+    return dens, col, hard
 
 
-def marching_cubes(dens, col, flat=False):
+def marching_cubes(dens, col, flat=False, hard=None):
     """IMPL.md §5-7. Returns (tri_pos, tri_col): float arrays (n, 3, 3).
     Positions are in voxel units; densities sit at voxel centers, hence the
     +0.5 offset (IMPL.md §6). World origin matches FXL coordinates."""
     corner = np.array(VERTICES_POSITIONS, float)
-    tris, cols = [], []
+    tris, cols, hards = [], [], []
     nx, ny, nz = dens.shape
     for cx in range(nx - 1):
         for cy in range(ny - 1):
@@ -314,6 +321,7 @@ def marching_cubes(dens, col, flat=False):
                     continue
                 vpos = [None] * 12
                 vcol = [None] * 12
+                vhard = [False] * 12
                 for e in range(12):
                     if not (edges & (1 << e)):
                         continue
@@ -321,12 +329,15 @@ def marching_cubes(dens, col, flat=False):
                     f0, f1 = d[v0] / 255.0, d[v1] / 255.0
                     mu = (f0 - 0.5) / (f0 - f1)
                     p = corner[v0] * (1 - mu) + corner[v1] * mu
-                    if flat:
-                        p = np.round(p * 2) / 2
-                    vpos[e] = p
                     src = v0 if d[v0] > d[v1] else v1
                     dx, dy, dz = VERTICES_POSITIONS[src]
+                    h = bool(hard[cx + dx, cy + dy, cz + dz]) \
+                        if hard is not None else False
+                    if flat or h:
+                        p = np.round(p * 2) / 2
+                    vpos[e] = p
                     vcol[e] = col[cx + dx, cy + dy, cz + dz]
+                    vhard[e] = h
                 base = np.array([cx - 1 + 0.5, cy - 1 + 0.5, cz - 1 + 0.5])
                 row = MC_TRI_TABLE[cube_index]
                 for i in range(0, 16, 3):
@@ -334,15 +345,16 @@ def marching_cubes(dens, col, flat=False):
                         break
                     tris.append([base + vpos[row[i + k]] for k in range(3)])
                     cols.append([vcol[row[i + k]] for k in range(3)])
+                    hards.append([vhard[row[i + k]] for k in range(3)])
     if not tris:
         raise FxlError('no surface generated (all voxels below iso?)')
-    return np.array(tris), np.array(cols, float)
+    return np.array(tris), np.array(cols, float), np.array(hards, bool)
 
 
 # ---------------------------------------------------------------------------
 # Minimal software renderer: perspective camera, z-buffer, flat shading.
 
-def smooth_normals(tri_pos, crease_deg=50.0):
+def smooth_normals(tri_pos, crease_deg=50.0, tri_hard=None):
     """Crease-aware per-corner normals: weld shared vertices and average
     face normals across edges gentler than crease_deg, keeping hard
     edges (teeth, ribs, socket rims) sharp while curved regions (skull
@@ -357,14 +369,33 @@ def smooth_normals(tri_pos, crease_deg=50.0):
     bounds = np.flatnonzero(np.diff(inv[order])) + 1
     cos_t = math.cos(math.radians(crease_deg))
     corner_face = np.arange(len(verts)) // 3
+    face_hard = tri_hard.any(1) if tri_hard is not None \
+        else np.zeros(len(tri_pos), bool)
     out = np.empty_like(verts)
     for g in np.split(order, bounds):
-        fns = fn[corner_face[g]]
-        m = fns @ fns.T > cos_t
+        faces = corner_face[g]
+        fns = fn[faces]
+        hardf = face_hard[faces]
+        m = (fns @ fns.T > cos_t) & ~hardf[None, :]
         avg = m.astype(float) @ fns
+        bad = np.linalg.norm(avg, axis=1) < 1e-9
+        avg[bad | hardf] = fns[bad | hardf]
         avg /= np.maximum(np.linalg.norm(avg, axis=1, keepdims=True), 1e-12)
         out[g] = avg
     return out.reshape(-1, 3, 3)
+
+
+def base_colors(tri_col, tri_hard=None):
+    """Per-triangle base color. Hard-material corners dominate: a
+    triangle touching a hard voxel takes the mean of its HARD corners
+    only, so hard/soft color boundaries stay crisp."""
+    mean_all = tri_col.mean(1)
+    if tri_hard is None or not tri_hard.any():
+        return mean_all / 255.0
+    hc = tri_hard[..., None].astype(float)
+    n = tri_hard.sum(1)
+    hard_mean = (tri_col * hc).sum(1) / np.maximum(n, 1)[:, None]
+    return np.where((n > 0)[:, None], hard_mean, mean_all) / 255.0
 
 
 def rotmat(yaw_deg, pitch_deg):
@@ -394,7 +425,7 @@ def make_cam(tri_pos, width, height, yaw_deg, pitch_deg, ss=2):
 
 
 def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
-           rig=None, cam=None, tri_norm=None):
+           rig=None, cam=None, tri_norm=None, tri_hard=None):
     w, h = width * ss, height * ss
     rot = rotmat(yaw_deg, pitch_deg)
     if cam is None:
@@ -413,7 +444,7 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
     # (per-corner normals interpolated) when tri_norm is provided.
     light = np.array([-0.45, 0.8, 0.5])
     light /= np.linalg.norm(light)
-    base = tri_col.mean(1) / 255.0
+    base = base_colors(tri_col, tri_hard)
     if tri_norm is not None:
         cshade = 0.25 + 0.75 * np.abs(tri_norm @ light)
         tcol = None
@@ -830,8 +861,10 @@ def main():
     try:
         palette, layers, (joints, bones, anims, hints) = \
             parse_fxl(args.input)
-        dens, col = build_grids(palette, layers)
-        tri_pos, tri_col = marching_cubes(dens, col, flat=args.flat)
+        dens, col, hard = build_grids(palette, layers)
+        tri_pos, tri_col, tri_hard = marching_cubes(dens, col,
+                                                    flat=args.flat,
+                                                    hard=hard)
     except FxlError as e:
         sys.exit('error: %s' % e)
 
@@ -854,7 +887,7 @@ def main():
         rest = {c: (p[0] + 0.5, p[1] + 0.5, p[2] + 0.5)
                 for c, p in joints.items()}
         bind = skin_bind(tri_pos, dens, rest, bones)
-        rest_norm = smooth_normals(tri_pos)
+        rest_norm = smooth_normals(tri_pos, tri_hard=tri_hard)
         cam = make_cam(tri_pos, args.width, args.height,
                        args.yaw, args.pitch)
         n = max(2, int(round(anim['duration'] * args.fps)))
@@ -870,7 +903,7 @@ def main():
             frames.append(render(fpos, tri_col,
                                  args.width, args.height,
                                  args.yaw, args.pitch, cam=cam,
-                                 tri_norm=fnorm))
+                                 tri_norm=fnorm, tri_hard=tri_hard))
             print('frame %d/%d' % (i + 1, n))
         out = args.output or re.sub(r'\.fxl$', '', args.input) \
             + '_%s.png' % args.anim
@@ -887,7 +920,8 @@ def main():
                [(jw[c1], jw[c2]) for _, c1, c2, _f in bones])
     img = render(tri_pos, tri_col, args.width, args.height,
                  args.yaw, args.pitch, rig=rig,
-                 tri_norm=smooth_normals(tri_pos))
+                 tri_norm=smooth_normals(tri_pos, tri_hard=tri_hard),
+                 tri_hard=tri_hard)
     write_png(out, img)
     print('wrote %s (%dx%d)' % (out, args.width, args.height))
 
