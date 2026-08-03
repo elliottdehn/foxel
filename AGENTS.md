@@ -50,7 +50,7 @@ import render
 palette, scene, (joints, bones, anims, hints, skin_mode) = \
     render.parse_fxl('skeleton.fxl')
 # scene is a list of (layers, offset) parts; classic files have one.
-layers, _ = scene[0]
+layers = scene[0][0]
 dens, col, hard = render.build_grids(palette, layers)
 dens = dens[:, 64:, :].copy(); col = col[:, 64:, :].copy()  # head only
 hard = hard[:, 64:, :].copy()
@@ -94,6 +94,13 @@ drift between frames).
   shells can't fog them; dark back-wall voxels make them read black.
   1-voxel features get color-averaged into invisibility — make dark
   features 2+ voxels or use carved holes.
+- **Disconnected things must stay disconnected**: after emitting a
+  composed model, call `render.check_part_clearance(palette, scene)`
+  and assert it returns [] (allow-list intentional contacts). Two
+  accessories that merely TOUCH in space read as fused in the render
+  even though they are separate meshes — the goblin's rope belt once
+  bridged into its wrist cuffs this way. Keep >= 2 voxels between
+  accessory parts.
 - **Separate models for separate things** (LANG.md §7): declare
   accessories and features (kilt, teeth, eyes) as their own `model`
   sections and `place` them — each part is materialized with its own

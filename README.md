@@ -1,7 +1,8 @@
 # foxel
 
 <p align="center">
-  <img src="media/wave.png" width="250" alt="Wave animation (animated)">
+  <img src="media/wave.png" width="250" alt="Skeleton wave (animated)">
+  <img src="media/goblin_walk.png" width="250" alt="Goblin walk cycle (animated)">
 </p>
 
 ## Install

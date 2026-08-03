@@ -17,6 +17,7 @@ halo_ok = np.zeros((W, H, D), bool)
 gk = np.full((W, H, D), '.', dtype='<U1')   # kilt + rope
 gt = np.full((W, H, D), '.', dtype='<U1')   # teeth + gums + mouth wall
 ge = np.full((W, H, D), '.', dtype='<U1')   # eyes: liners + glow
+gb = np.full((W, H, D), '.', dtype='<U1')   # wrist bands
 
 
 def put_part(gp, x, y, z, ch):
@@ -24,13 +25,14 @@ def put_part(gp, x, y, z, ch):
     if 0 <= x < W and 0 <= y < H and 0 <= z < D:
         gp[x, y, z] = ch
 
-SOLID = set('gGerbtysR')
+SOLID = set('gGerbtysRvö')
 PROTECT = set('tys')      # never carved
 
 SHELL_ALPHAS = [104, 92, 80, 68, 56, 44, 33, 22, 12, 5]
 SHELL_CHARS = '0123456789'
 ALPHA_OF = {'g': 255, 'G': 192, 'e': 158, 'r': 131, 'b': 255,
-            't': 255, 'y': 255, 's': 200, 'R': 255, '.': 0}
+            't': 255, 'y': 255, 's': 200, 'R': 255,
+            'v': 255, 'ö': 255, '.': 0}
 for _c, _a in zip(SHELL_CHARS, SHELL_ALPHAS):
     ALPHA_OF[_c] = _a
 LADDER = [(255, 'g'), (192, 'G'), (158, 'e'), (131, 'r')] +     list(zip(SHELL_ALPHAS, SHELL_CHARS))
@@ -168,10 +170,10 @@ for side in (-1, 1):
 # ---- pelvis + loincloth ----------------------------------------------------
 for yy in (16, 17, 18):
     fill_ellipse(yy, CX, CZ, 6.5, 4.0, 'g')
-for yy in (15, 16, 17, 18):                        # loincloth band (kilt)
+for yy in (14, 15, 16, 17, 18):                    # loincloth band (kilt)
     for xx in range(W):
         for zz in range(D):
-            if ((xx - CX) / 7.5) ** 2 + ((zz - CZ) / 5.0) ** 2 <= 1.0:
+            if ((xx - CX) / 8.5) ** 2 + ((zz - CZ) / 5.8) ** 2 <= 1.0:
                 put_part(gk, xx, yy, zz, 'b')
 for yy in range(11, 15):                           # front flap (kilt)
     for xx in range(20, 25):
@@ -237,10 +239,6 @@ for fx in (18, 26):                                # fangs rise from the jaw
     for yy in (43, 44, 45):
         put_part(gt, fx, yy, 18, 't')
         put_part(gt, fx, yy, 19, 't')
-    for zz in (18, 19):                            # dark gums under the fangs
-        for gx, gy in ((fx, 42), (fx - 1, 43), (fx + 1, 43)):
-            put_part(gt, gx, gy, zz, 's')
-            carve.append((gx, gy, zz))
     carve_box(fx, fx, 46, 46, 17, 20)              # lip notch above the tip
 for ex0 in (16, 25):                               # eye sockets
     for xx in range(ex0, ex0 + 4):                 # dark lining, 2 deep
@@ -253,39 +251,44 @@ for ex0 in (16, 25):                               # eye sockets
         for yy in (47, 48):
             put_part(ge, xx, yy, 16, 'y')
 
-# Rope belt around the tunic waist: march outward per angle, lay rope
-# on the lateral surface; knot and dangling ends at the front.
+# Skin variation: deterministic mottling (darker green flecks) and a
+# lighter belly patch, so the flesh reads organic instead of flat.
+for xx in range(W):
+    for yy in range(H):
+        for zz in range(D):
+            if g[xx, yy, zz] != 'g':
+                continue
+            if ((xx - CX) / 8.0) ** 2 + ((yy - 24) / 5.5) ** 2 \
+                    + ((zz - CZ - 3.5) / 5.0) ** 2 <= 1.0:
+                g[xx, yy, zz] = 'ö'                # belly highlight
+            elif (xx * 7 + yy * 13 + zz * 5) % 17 < 3:
+                g[xx, yy, zz] = 'v'                # mottle fleck
+
+# Rope belt: a clean analytic ring cinching the kilt's top hem,
+# with a knot and dangling ends at the front.
 ROPE_Y = 18
-zk = None
-for th in np.linspace(0, 2 * np.pi, 512):
-    dxv, dzv = np.cos(th), np.sin(th)
-    edge = None
-    rr = 2.0
-    while rr < 11.0:
-        xx = int(round(CX + dxv * rr))
-        zz = int(round(CZ + dzv * rr))
-        if not (0 <= xx < W and 0 <= zz < D):
-            break
-        if ALPHA_OF.get(g[xx, ROPE_Y, zz], 0) >= 127 \
-                and g[xx, ROPE_Y, zz] != 'R':
-            edge = rr
-        rr += 0.25
-    if edge is None:
-        continue
-    for rp in (edge, edge + 0.7):
-        xx = int(round(CX + dxv * rp))
-        zz = int(round(CZ + dzv * rp))
-        if 1 <= xx < W - 1 and 1 <= zz < D - 1:
+for xx in range(1, W - 1):
+    for zz in range(1, D - 1):
+        s = np.sqrt(((xx - CX) / 8.5) ** 2 + ((zz - CZ) / 5.8) ** 2)
+        if 0.97 <= s <= 1.12:
             put_part(gk, xx, ROPE_Y, zz, 'R')
-    if abs(th - np.pi / 2) < 0.05:
-        zk = int(round(CZ + edge))
-if zk is not None:
-    for xx in (CX - 1, CX, CX + 1):                    # knot
-        put_part(gk, xx, ROPE_Y, zk + 1, 'R')
-    put_part(gk, CX, ROPE_Y, zk + 2, 'R')
-    for yy in (16, 17):                                # dangling ends
-        put_part(gk, CX - 1, yy, zk + 1, 'R')
-        put_part(gk, CX + 1, yy, zk + 1, 'R')
+zk = int(round(CZ + 5.8))
+for xx in (CX - 1, CX, CX + 1):                    # knot
+    put_part(gk, xx, ROPE_Y, zk + 1, 'R')
+put_part(gk, CX, ROPE_Y, zk + 2, 'R')
+for yy in (16, 17):                                # dangling ends
+    put_part(gk, CX - 1, yy, zk, 'R')
+    put_part(gk, CX + 1, yy, zk, 'R')
+
+# Wrist bands: leather cuffs ringing each forearm above the hand.
+for side in (-1, 1):
+    x0 = CX + side * 13
+    for yy in (17, 18, 19):
+        for xx in range(1, W - 1):
+            for zz in range(1, D - 1):
+                rr = np.sqrt((xx - x0) ** 2 + (zz - CZ) ** 2)
+                if rr <= 2.6:
+                    put_part(gb, xx, yy, zz, 'b')
 
 # ---- 10-grade density falloff (distance-field shells) ----------------------
 import math as _math
@@ -425,6 +428,8 @@ out.append('t = F5EFD8 hard     # fangs')
 out.append('s = 1A2010C8 hard   # mouth/socket back walls, dark')
 out.append('y = FFD41E hard     # eye glow, yellow')
 out.append('R = 9A7B4F hard     # rope belt')
+out.append('v = 4A9134          # skin mottle, darker green')
+out.append('ö = 76B24A          # belly, lighter green')
 out.append('')
 out.append('skin elastic')
 out.append('')
@@ -482,7 +487,8 @@ def _part_layers(gp):
 
 
 place_lines = []
-for pname, gp in (('kilt', gk), ('teeth', gt), ('eyes', ge)):
+for pname, gp in (('kilt', gk), ('teeth', gt), ('eyes', ge),
+                  ('cuffs', gb)):
     py0, plyrs = _part_layers(gp)
     out.append('model %s:  # placed at y=%d' % (pname, py0))
     for rows in plyrs:
@@ -529,3 +535,13 @@ with open('goblin.fxl', 'w') as f:
 n = int(np.isin(g, list(SOLID)).sum())
 print('goblin.fxl: %d solid voxels, %d layers (%d unique, %d shared defs)'
       % (n, H_used, len(counts), len(names)))
+
+# Disconnected things must stay disconnected: verify no accessory
+# parts touch each other (teeth/eyes share the dark face mask by
+# design). Fails the build rather than shipping fused parts.
+import render as _render
+_pal, _scene, _rig = _render.parse_fxl('goblin.fxl')
+_touching = _render.check_part_clearance(
+    _pal, _scene, allow={('eyes', 'teeth')})
+assert not _touching, 'accessory parts touch: %s' % _touching
+print('part clearance OK')

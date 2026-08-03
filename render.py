@@ -277,9 +277,9 @@ def parse_fxl(path):
         placed_count[name] = placed_count.get(name, 0) + 1
     scene = []
     if layers:
-        scene.append((layers, (0, 0, 0)))
+        scene.append((layers, (0, 0, 0), 'main'))
     for _, name, off in places:
-        scene.append((models[name], off))
+        scene.append((models[name], off, name))
 
     # Resolve joint markers (sudoku border notation, LANG.md section 8)
     # across the root layers and every placed instance; a model that
@@ -295,7 +295,7 @@ def parse_fxl(path):
                     'exactly once (placed %d times)'
                     % (path, mname, placed_count.get(mname, 0)))
     occ = {}
-    for part_layers, off in scene:
+    for part_layers, off, _nm in scene:
         for yi, rows in enumerate(part_layers):
             for zi, row in enumerate(rows):
                 for xi, ch in enumerate(row):
@@ -316,7 +316,7 @@ def parse_fxl(path):
         off = o[0][3]
         yl = o[0][0] - off[1]
         src_layers = None
-        for part_layers, poff in scene:
+        for part_layers, poff, _nm in scene:
             if poff == off and 0 <= yl < len(part_layers):
                 src_layers = part_layers
                 break
@@ -463,14 +463,14 @@ def mesh_scene(palette, scene, flat=False):
     field, own marching cubes -- parts never blend), then merge the
     meshes and build a union occupancy grid for skinning."""
     gw = gh = gd = 0
-    for part_layers, off in scene:
+    for part_layers, off, _nm in scene:
         w, h, d = _part_dims(part_layers)
         gw = max(gw, off[0] + w)
         gh = max(gh, off[1] + h)
         gd = max(gd, off[2] + d)
     union = np.zeros((gw + 2, gh + 2, gd + 2), np.uint8)
     tps, tcs, ths = [], [], []
-    for part_layers, off in scene:
+    for part_layers, off, _nm in scene:
         dens, col, hard = build_grids(palette, part_layers)
         tp, tc, th = marching_cubes(dens, col, flat=flat, hard=hard)
         tps.append(tp + np.array(off, float))
@@ -483,6 +483,48 @@ def mesh_scene(palette, scene, flat=False):
         np.maximum(sub, dens[1:w + 1, 1:h + 1, 1:d + 1], out=sub)
     return (np.concatenate(tps), np.concatenate(tcs),
             np.concatenate(ths), union)
+
+
+def check_part_clearance(palette, scene, allow=()):
+    """Return pairs of NON-ROOT parts whose solid voxels touch or
+    overlap (26-adjacency). Parts hugging the root body are fine; two
+    accessories fusing (a cuff touching a kilt) is a modeling bug.
+    Generators should assert this returns [] (minus allowed pairs)."""
+    gw = gh = gd = 0
+    for part_layers, off, _nm in scene:
+        w, h, d = _part_dims(part_layers)
+        gw = max(gw, off[0] + w)
+        gh = max(gh, off[1] + h)
+        gd = max(gd, off[2] + d)
+    masks = []
+    for part_layers, off, nm in scene:
+        if nm == 'main':
+            continue
+        m = np.zeros((gw + 2, gh + 2, gd + 2), bool)
+        for y, rows in enumerate(part_layers):
+            for z, row in enumerate(rows):
+                for x, ch in enumerate(row):
+                    if ch in palette and palette[ch][3] >= 127:
+                        m[x + off[0] + 1, y + off[1] + 1,
+                          z + off[2] + 1] = True
+        masks.append((nm, m))
+    touching = []
+    for i in range(len(masks)):
+        n1, m1 = masks[i]
+        grown = np.zeros_like(m1)
+        for dx in (-1, 0, 1):
+            for dy in (-1, 0, 1):
+                for dz in (-1, 0, 1):
+                    grown |= np.roll(np.roll(np.roll(
+                        m1, dx, 0), dy, 1), dz, 2)
+        for j in range(i + 1, len(masks)):
+            n2, m2 = masks[j]
+            pair = tuple(sorted((n1, n2)))
+            if pair in allow or tuple(reversed(pair)) in allow:
+                continue
+            if (grown & m2).any():
+                touching.append(pair)
+    return touching
 
 
 def base_colors(tri_col, tri_hard=None):
@@ -524,8 +566,68 @@ def make_cam(tri_pos, width, height, yaw_deg, pitch_deg, ss=2):
     return center, dist, focal
 
 
+def bake_ao(tri_pos, dens):
+    """Per-corner ambient occlusion from local voxel density: crevices
+    (armpits, sockets, under the belly) darken, open surfaces stay
+    bright. Baked once from the rest grid."""
+    solid = (dens >= 127).astype(np.float32)
+    S = np.zeros((solid.shape[0] + 6, solid.shape[1] + 6,
+                  solid.shape[2] + 6), np.float32)
+    S[3:-3, 3:-3, 3:-3] = solid
+    verts = tri_pos.reshape(-1, 3)
+    ix = np.clip(np.round(verts[:, 0] - 0.5).astype(int) + 4, 0,
+                 S.shape[0] - 1)
+    iy = np.clip(np.round(verts[:, 1] - 0.5).astype(int) + 4, 0,
+                 S.shape[1] - 1)
+    iz = np.clip(np.round(verts[:, 2] - 0.5).astype(int) + 4, 0,
+                 S.shape[2] - 1)
+    acc = np.zeros(len(verts), np.float32)
+    wsum = 0.0
+    for dx in range(-2, 3):
+        for dy in range(-2, 3):
+            for dz in range(-2, 3):
+                w = 1.0 / (1.0 + dx * dx + dy * dy + dz * dz)
+                wsum += w
+                acc += w * S[np.clip(ix + dx, 0, S.shape[0] - 1),
+                             np.clip(iy + dy, 0, S.shape[1] - 1),
+                             np.clip(iz + dz, 0, S.shape[2] - 1)]
+    frac = acc / wsum
+    ao = np.clip(1.0 - (frac - 0.42) * 1.7, 0.3, 1.0)
+    return ao.reshape(-1, 3)
+
+
+_KEY_D = np.array([-0.5, 0.75, 0.45])
+_KEY_D = _KEY_D / np.linalg.norm(_KEY_D)
+_FILL_D = np.array([0.65, 0.15, 0.35])
+_FILL_D = _FILL_D / np.linalg.norm(_FILL_D)
+_RIM_D = np.array([0.2, 0.35, -0.9])
+_RIM_D = _RIM_D / np.linalg.norm(_RIM_D)
+_KEY_C = np.array([1.0, 0.97, 0.9])
+_FILL_C = np.array([0.5, 0.58, 0.72])
+_RIM_C = np.array([0.85, 0.92, 1.0])
+_SKY_C = np.array([0.45, 0.5, 0.6])
+_GND_C = np.array([0.22, 0.19, 0.17])
+
+
+def _radiance(nrm, ao):
+    """Per-corner light color for a normal + AO value. (N,3)->(N,3)."""
+    ndl = np.clip(nrm @ _KEY_D, 0, 1)
+    ndf = np.clip(nrm @ _FILL_D, 0, 1)
+    ndr = np.clip(nrm @ _RIM_D, 0, 1) ** 2
+    hemi = 0.5 * (nrm[:, 1] + 1.0)
+    amb = (_GND_C[None, :] * (1 - hemi)[:, None]
+           + _SKY_C[None, :] * hemi[:, None])
+    key_ao = (0.55 + 0.45 * ao)[:, None]
+    L = (amb * 0.6 * ao[:, None]
+         + _KEY_C[None, :] * (1.05 * ndl)[:, None] * key_ao
+         + _FILL_C[None, :] * (0.4 * ndf * ao)[:, None]
+         + _RIM_C[None, :] * (0.3 * ndr * ao)[:, None])
+    return L
+
+
 def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
-           rig=None, cam=None, tri_norm=None, tri_hard=None):
+           rig=None, cam=None, tri_norm=None, tri_hard=None,
+           tri_ao=None, shadow=True):
     w, h = width * ss, height * ss
     rot = rotmat(yaw_deg, pitch_deg)
     if cam is None:
@@ -540,22 +642,19 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
     pts = np.stack([sx, sy], 1).reshape(-1, 3, 2)
     depth = depth.reshape(-1, 3)
 
-    # Two-sided lambert. Flat per-triangle normals by default; Gouraud
-    # (per-corner normals interpolated) when tri_norm is provided.
-    light = np.array([-0.45, 0.8, 0.5])
-    light /= np.linalg.norm(light)
+    # Three-light rig with baked AO, gamma-correct shading.
     base = base_colors(tri_col, tri_hard)
-    if tri_norm is not None:
-        cshade = 0.25 + 0.75 * np.abs(tri_norm @ light)
-        tcol = None
-    else:
+    albedo = np.clip(base, 0, 1) ** 2.2          # sRGB -> linear
+    if tri_norm is None:
         e1 = tri_pos[:, 1] - tri_pos[:, 0]
         e2 = tri_pos[:, 2] - tri_pos[:, 0]
         n = np.cross(e1, e2)
         n /= np.maximum(np.linalg.norm(n, axis=1, keepdims=True), 1e-12)
-        cshade = None
-        shade = 0.25 + 0.75 * np.abs(n @ light)
-        tcol = np.clip(base * shade[:, None], 0, 1)
+        tri_norm = np.repeat(n[:, None, :], 3, axis=1)
+    if tri_ao is None:
+        tri_ao = np.ones((len(tri_pos), 3))
+    L = _radiance(tri_norm.reshape(-1, 3),
+                  tri_ao.reshape(-1)).reshape(-1, 3, 3)
 
     # Background: vertical gradient.
     img = np.zeros((h, w, 3))
@@ -563,6 +662,36 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
     img[:] = (np.array([0.10, 0.09, 0.13]) * (1 - t)
               + np.array([0.22, 0.20, 0.28]) * t)[:, None, :]
     zbuf = np.full((h, w), np.inf)
+
+    if shadow:
+        gy = verts[:, 1].min()
+        gverts = verts.copy()
+        gverts[:, 1] = gy
+        gc = (gverts - center) @ rot.T
+        gdep = dist - gc[:, 2]
+        gsx = gc[:, 0] * focal / gdep + w / 2
+        gsy = h / 2 - gc[:, 1] * focal / gdep
+        gpts = np.stack([gsx, gsy], 1).reshape(-1, 3, 2)
+        smask = np.zeros((h, w), bool)
+        for ti in range(len(gpts)):
+            p = gpts[ti]
+            x0 = max(int(np.floor(p[:, 0].min())), 0)
+            x1 = min(int(np.ceil(p[:, 0].max())) + 1, w)
+            y0 = max(int(np.floor(p[:, 1].min())), 0)
+            y1 = min(int(np.ceil(p[:, 1].max())) + 1, h)
+            if x0 >= x1 or y0 >= y1:
+                continue
+            xs, ys = np.meshgrid(np.arange(x0, x1) + 0.5,
+                                 np.arange(y0, y1) + 0.5)
+            (ax, ay), (bx, by), (cx, cy) = p
+            area = (bx - ax) * (cy - ay) - (by - ay) * (cx - ax)
+            if abs(area) < 1e-9:
+                continue
+            w0 = ((cx - bx) * (ys - by) - (cy - by) * (xs - bx)) / area
+            w1 = ((ax - cx) * (ys - cy) - (ay - cy) * (xs - cx)) / area
+            w2 = 1 - w0 - w1
+            smask[y0:y1, x0:x1] |= (w0 >= 0) & (w1 >= 0) & (w2 >= 0)
+        img[smask] *= 0.5
 
     order = np.argsort(-depth.mean(1))  # far first (z-buffer makes it exact)
     for ti in order:
@@ -589,13 +718,11 @@ def render(tri_pos, tri_col, width, height, yaw_deg, pitch_deg, ss=2,
         zwin = zbuf[y0:y1, x0:x1]
         mask &= zi < zwin
         zwin[mask] = zi[mask]
-        if cshade is not None:
-            sh = (w0 * cshade[ti, 0] + w1 * cshade[ti, 1]
-                  + w2 * cshade[ti, 2])
-            img[y0:y1, x0:x1][mask] = np.clip(
-                base[ti][None, :] * sh[mask][:, None], 0, 1)
-        else:
-            img[y0:y1, x0:x1][mask] = tcol[ti]
+        sh = (w0[..., None] * L[ti, 0][None, None, :]
+              + w1[..., None] * L[ti, 1][None, None, :]
+              + w2[..., None] * L[ti, 2][None, None, :])
+        lin = albedo[ti][None, :] * sh[mask]
+        img[y0:y1, x0:x1][mask] = np.clip(lin, 0, 1) ** (1 / 2.2)
 
     img = img.reshape(height, ss, width, ss, 3).mean((1, 3))
 
@@ -1062,6 +1189,8 @@ def main():
         print('rig: %d joints, %d bones, %d animations'
               % (len(joints), len(bones), len(anims)))
 
+    tri_ao = bake_ao(tri_pos, dens)
+
     if args.anim:
         if args.anim not in anims:
             sys.exit('error: no animation %r (have: %s)'
@@ -1097,7 +1226,8 @@ def main():
             frames.append(render(fpos, tri_col,
                                  args.width, args.height,
                                  args.yaw, args.pitch, cam=cam,
-                                 tri_norm=fnorm, tri_hard=tri_hard))
+                                 tri_norm=fnorm, tri_hard=tri_hard,
+                                 tri_ao=tri_ao))
             print('frame %d/%d' % (i + 1, n))
         out = args.output or re.sub(r'\.fxl$', '', args.input) \
             + '_%s.png' % args.anim
@@ -1115,7 +1245,7 @@ def main():
     img = render(tri_pos, tri_col, args.width, args.height,
                  args.yaw, args.pitch, rig=rig,
                  tri_norm=smooth_normals(tri_pos, tri_hard=tri_hard),
-                 tri_hard=tri_hard)
+                 tri_hard=tri_hard, tri_ao=tri_ao)
     write_png(out, img)
     print('wrote %s (%dx%d)' % (out, args.width, args.height))
 
